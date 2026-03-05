@@ -51,3 +51,15 @@ def test_sanitize_history_for_prompt_removes_technical_lines() -> None:
     clean = CodexRunner._sanitize_history_for_prompt(content)
 
     assert clean == "Полезный ответ"
+
+
+def test_sanitize_history_for_prompt_collapses_multiline_history() -> None:
+    content = (
+        "[stderr] Первая строка старого ответа\n"
+        "[stderr] Вторая строка старого ответа\n"
+        "[stderr] Третья строка старого ответа\n"
+    )
+
+    clean = CodexRunner._sanitize_history_for_prompt(content)
+
+    assert clean == "Первая строка старого ответа Вторая строка старого ответа Третья строка старого ответа"

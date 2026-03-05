@@ -217,8 +217,8 @@ class TelecodexApplication:
             cancel_event=cancel_event,
         )
 
-        await self.repo.add_history(session_item.id, "user", prompt)
         recent_history = await self.repo.get_recent_history(session_item.id, self.settings.session_history_items)
+        await self.repo.add_history(session_item.id, "user", prompt)
         try:
             result = await self.runner.run(
                 session=session_item,
@@ -230,18 +230,22 @@ class TelecodexApplication:
         finally:
             self.active_runs.pop(chat_id, None)
 
-        assistant_text = (result.assistant_text or result.output).strip()
+        assistant_text = (result.assistant_text or result.display_text or result.output).strip()
         await self.repo.add_history(session_item.id, "assistant", assistant_text[-10000:])
         if result.cancelled:
             summary = "cancelled"
+            final_text = assistant_text or "Запуск отменен."
         elif result.timed_out:
             summary = "failed: timeout"
+            final_text = assistant_text or "Codex не успел вернуть ответ до таймаута."
         elif result.success:
             summary = "done"
+            final_text = assistant_text or "Ответ пуст."
         else:
             summary = f"failed: code={result.return_code}"
+            final_text = assistant_text or "Codex завершился с ошибкой без текстового ответа."
 
-        await stream.finish(result.success, summary)
+        await stream.finish(result.success, summary, final_text=final_text)
 
     async def _create_session(self, project_name: str) -> SessionRecord:
         project_path = self.settings.projects[project_name]

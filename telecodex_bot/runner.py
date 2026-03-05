@@ -17,6 +17,7 @@ class RunResult:
     return_code: int
     output: str
     assistant_text: str
+    display_text: str
     timed_out: bool = False
     cancelled: bool = False
 
@@ -68,6 +69,7 @@ class CodexRunner:
         )
 
         stream_collected: list[str] = []
+        display_collected: list[str] = []
         raw_collected: list[str] = []
 
         async def read_stream(stream: asyncio.StreamReader | None, source: str, prefix: str) -> None:
@@ -83,7 +85,11 @@ class CodexRunner:
                     continue
                 text = f"{prefix}{line}"
                 stream_collected.append(text)
-                await on_output(text)
+                display_line = self._sanitize_display_line(text)
+                if not display_line:
+                    continue
+                display_collected.append(display_line)
+                await on_output(display_line)
 
         stdout_task = asyncio.create_task(read_stream(proc.stdout, "stdout", ""))
         stderr_task = asyncio.create_task(read_stream(proc.stderr, "stderr", "[stderr] "))
@@ -106,12 +112,14 @@ class CodexRunner:
         assistant_text = self._extract_assistant_text(stream_collected)
         if not assistant_text.strip():
             assistant_text = self._extract_assistant_text(raw_collected)
+        display_text = self._extract_assistant_text(display_collected) or assistant_text
         success = return_code == 0 and not timed_out and not cancelled
         return RunResult(
             success=success,
             return_code=return_code,
             output=output,
             assistant_text=assistant_text,
+            display_text=display_text,
             timed_out=timed_out,
             cancelled=cancelled,
         )
@@ -226,11 +234,28 @@ class CodexRunner:
         parts = content.splitlines()
         cleaned = cls._extract_assistant_text(parts)
         if cleaned:
-            return cleaned
+            return cls._collapse_inline(cleaned)
         fallback = []
         for part in parts:
             normalized = cls._normalize_line(part)
             if not normalized or cls._is_noise_line(normalized):
                 continue
             fallback.append(normalized)
-        return "\n".join(fallback).strip() or "(filtered noisy history)"
+        fallback_text = "\n".join(fallback).strip()
+        if fallback_text:
+            return cls._collapse_inline(fallback_text)
+        return "(filtered noisy history)"
+
+    @classmethod
+    def _sanitize_display_line(cls, text: str) -> str:
+        normalized = cls._normalize_line(text.rstrip("\n"))
+        if not normalized:
+            return ""
+        if cls._is_noise_line(normalized):
+            return ""
+        collapsed = cls._collapse_inline(normalized)
+        return f"{collapsed}\n" if collapsed else ""
+
+    @staticmethod
+    def _collapse_inline(text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip()

@@ -63,9 +63,12 @@ class TelegramStreamEditor:
     async def _render(self, status: str) -> None:
         if self.message is None:
             return
-        elapsed = int(time.monotonic() - self.state.started_at_monotonic)
         body = self.state.tail_text.strip() or "(no output yet)"
-        text = f"[{status}] {elapsed}s\n\n{body}"
+        if status == "running":
+            elapsed = int(time.monotonic() - self.state.started_at_monotonic)
+            text = f"Running... {elapsed}s\n\n{body}"
+        else:
+            text = body
         if text == self.state.last_rendered:
             return
         self._last_edit = time.monotonic()
@@ -76,14 +79,15 @@ class TelegramStreamEditor:
             if "message is not modified" not in str(exc):
                 raise
 
-    async def finish(self, success: bool, summary: str) -> str:
+    async def finish(self, success: bool, summary: str, final_text: str | None = None) -> str:
         status = "done" if success else "failed"
+        if final_text is not None:
+            self.state.tail_text = self.tail(final_text, self.tail_chars)
         await self.force_render(status)
-        final_mark = "✅" if success else "❌"
-        await self.bot.send_message(self.chat_id, f"{final_mark} {summary}")
         full_text = "".join(self.state.full_output)
         if len(full_text) >= self.send_log_threshold:
             data = full_text.encode("utf-8", errors="replace")
             doc = BufferedInputFile(data, filename="codex_output.log")
-            await self.bot.send_document(self.chat_id, document=doc, caption="Полный лог")
+            caption = "Полный лог" if success else f"Полный лог ({summary})"
+            await self.bot.send_document(self.chat_id, document=doc, caption=caption)
         return full_text
