@@ -230,7 +230,8 @@ class TelecodexApplication:
         finally:
             self.active_runs.pop(chat_id, None)
 
-        await self.repo.add_history(session_item.id, "assistant", result.output[-10000:])
+        assistant_text = (result.assistant_text or result.output).strip()
+        await self.repo.add_history(session_item.id, "assistant", assistant_text[-10000:])
         if result.cancelled:
             summary = "cancelled"
         elif result.timed_out:
