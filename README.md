@@ -103,5 +103,5 @@ sudo systemctl status telecodexbot
 ## 6. Тесты
 
 ```bash
-pytest -q
+./.venv/bin/pytest -q
 ```

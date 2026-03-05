@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import aiosqlite
+import sqlite3
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -38,7 +38,12 @@ CREATE INDEX IF NOT EXISTS idx_history_session_created ON history(session_id, cr
 """
 
 
+def _init_db_sync(db_path: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.executescript(SCHEMA_SQL)
+        conn.commit()
+
+
 async def init_db(db_path: str) -> None:
-    async with aiosqlite.connect(db_path) as conn:
-        await conn.executescript(SCHEMA_SQL)
-        await conn.commit()
+    _init_db_sync(db_path)
