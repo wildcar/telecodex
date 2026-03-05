@@ -8,9 +8,9 @@
 5) Бот разворачивается как сервис на Ubuntu (systemd), с конфигом через env/.env.
 
 Текущая задача (инкремент)
-- Добавить новый разрешенный проект в whitelist конфигурации бота:
-  `ort_bot -> /home/codex/ort_bot`.
-- Обновить runtime-конфиг и пример `.env` для поддержки выбора проекта через `/project ort_bot`.
+- Исправить запуск Codex из бота: текущий `CODEX_COMMAND` содержит неподдерживаемый флаг `--non-interactive`.
+- Подобрать корректную команду запуска для установленной версии `codex` (по `codex --help`).
+- Обновить runtime-конфиг и пример `.env`.
 - Закоммитить и отправить изменения в GitHub, затем перезапустить сервис.
 
 Принятые решения по умолчанию (для реализации)
@@ -19,7 +19,7 @@
 - Конфиг проектов: env-переменная `TELECODEX_PROJECTS_JSON` с JSON-объектом формата:
   `{"demo":"/opt/projects/demo","infra":"/opt/projects/infra"}`.
 - Текущий выбор проекта/сессии хранится по `chat_id` (не по user_id).
-- Команда запуска Codex задается переменной `CODEX_COMMAND` (например `codex --non-interactive`).
+- Команда запуска Codex задается переменной `CODEX_COMMAND`.
 
 Ограничения и допущения
 - Без внешних БД на старте: использовать локальный файл SQLite.
@@ -68,27 +68,9 @@ D) Стриминг вывода в Telegram
 - Управление процессами: asyncio.create_subprocess_exec.
 - Логи: logging + RotatingFileHandler.
 - Конфиг: .env + pydantic-settings.
-- Юнит-тесты на критичную логику (выбор проекта/сессии, limiter/formatter стрима, корректная работа Repository).
 
 Интеграция с Codex CLI
 - Бот не выполняет произвольные команды пользователя.
 - Запускается только `CODEX_COMMAND` с добавлением prompt.
 - Перед запуском выставляется cwd = выбранный project_path.
 - История хранится в БД и подмешивается в prompt (последние N сообщений).
-
-Безопасность и эксплуатация
-- systemd unit:
-  * отдельный пользователь (например telecodexbot; в проде может быть keeper по локной политике)
-  * WorkingDirectory=/opt/telecodexbot
-  * EnvironmentFile=/opt/telecodexbot/.env
-  * Restart=always
-- Ограничения:
-  * только whitelisted project paths
-  * запрет выхода за whitelist
-  * timeout задачи (по умолчанию 30 минут)
-  * ограничение размера логов
-
-Критерии готовности текущего инкремента
-- Команда `/project <name>` и другие операции с Repository больше не падают с `RuntimeError: threads can only be started once`.
-- Тесты Repository проходят.
-- Изменения закоммичены и отправлены в GitHub.
