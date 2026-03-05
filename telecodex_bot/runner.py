@@ -55,6 +55,7 @@ class CodexRunner:
         user_prompt: str,
         recent_history: Iterable[HistoryItem],
         on_output: Callable[[str], Awaitable[None]],
+        on_progress: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
         prompt = self._build_prompt(session, user_prompt, recent_history)
@@ -85,6 +86,10 @@ class CodexRunner:
                 text = f"{prefix}{line}"
                 stream_collected.append(text)
                 await on_output(text)
+                if on_progress is not None:
+                    progress_text = self._extract_progress_text(text)
+                    if progress_text:
+                        await on_progress(progress_text)
 
         stdout_task = asyncio.create_task(read_stream(proc.stdout, "stdout", ""))
         stderr_task = asyncio.create_task(read_stream(proc.stderr, "stderr", "[stderr] "))
@@ -271,3 +276,30 @@ class CodexRunner:
             seen.add(line)
             result.append(line)
         return "\n".join(result)
+
+    @classmethod
+    def _extract_progress_text(cls, raw_line: str) -> str | None:
+        line = cls._normalize_line(raw_line)
+        normalized = re.sub(r"\s+", " ", line).strip()
+        if not normalized or cls._is_noise_line(normalized):
+            return None
+        lower = normalized.lower()
+        if lower.startswith(("exec", "succeeded in", "failed in", "error:", "usage:", "tip:")):
+            return None
+        if normalized.startswith(("/", "$", "`")):
+            return None
+        if " in /" in normalized or normalized.endswith(":") and "/" in normalized:
+            return None
+        if "::" in normalized or "\t" in normalized:
+            return None
+        if re.fullmatch(r"[\w./-]+\.[\w./-]+", normalized):
+            return None
+        if re.search(r"\b(?:sed|rg|pytest|git|python|bash|cat|ls|find|apply_patch)\b", lower):
+            return None
+        if len(normalized) > 220:
+            return None
+        if normalized.count("/") >= 2:
+            return None
+        if not re.search(r"[A-Za-zА-Яа-я]", normalized):
+            return None
+        return normalized

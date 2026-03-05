@@ -291,6 +291,7 @@ class TelecodexApplication:
             send_log_threshold=self.settings.stream_send_log_threshold,
         )
         await stream.start("Running...")
+        await stream.publish_status(f"Подготавливаю запуск в проекте {state.project_name}.")
 
         cancel_event = asyncio.Event()
         typing_task = asyncio.create_task(self._typing_loop(chat_id, cancel_event))
@@ -308,6 +309,7 @@ class TelecodexApplication:
                 user_prompt=prompt,
                 recent_history=recent_history,
                 on_output=lambda chunk: self._on_output(session_item, chunk),
+                on_progress=stream.publish_status,
                 cancel_event=cancel_event,
             )
         finally:

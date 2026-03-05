@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
@@ -19,15 +21,96 @@ class TelegramStreamEditor:
         self.tail_chars = tail_chars
         self.send_log_threshold = send_log_threshold
         self.message: Message | None = None
+        self._title = ""
+        self._last_rendered_text = ""
+        self._status_lines: list[str] = []
+        self._stop_event = asyncio.Event()
+        self._refresh_task: asyncio.Task[None] | None = None
+        self._edit_lock = asyncio.Lock()
+        self._started_at = 0.0
 
     async def start(self, title: str) -> None:
+        self._title = title
+        self._started_at = asyncio.get_running_loop().time()
+        self._stop_event = asyncio.Event()
         self.message = await self.bot.send_message(self.chat_id, title)
+        self._last_rendered_text = title
+        self._refresh_task = asyncio.create_task(self._refresh_loop())
+
+    async def publish_status(self, status: str) -> None:
+        normalized = self._normalize_status(status)
+        if not normalized:
+            return
+        async with self._edit_lock:
+            if self._status_lines and self._status_lines[-1] == normalized:
+                return
+            self._status_lines.append(normalized)
+            self._status_lines = self._status_lines[-3:]
 
     @staticmethod
     def tail(text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
             return text
         return text[-max_chars:]
+
+    async def _refresh_loop(self) -> None:
+        while not self._stop_event.is_set():
+            await self._render_progress()
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_sec)
+            except asyncio.TimeoutError:
+                continue
+
+    async def _render_progress(self) -> None:
+        if self.message is None:
+            return
+        async with self._edit_lock:
+            text = self._render_status_text()
+            if text == self._last_rendered_text:
+                return
+            await self._safe_edit(text=text, reply_markup=None)
+
+    def _render_status_text(self) -> str:
+        elapsed = max(0, int(asyncio.get_running_loop().time() - self._started_at))
+        lines = [f"{self._title} ({elapsed}s)"]
+        if self._status_lines:
+            lines.append("")
+            lines.append(f"Сейчас: {self._status_lines[-1]}")
+            if len(self._status_lines) > 1:
+                lines.extend(f"Недавно: {item}" for item in self._status_lines[-3:-1])
+        else:
+            lines.append("")
+            lines.append("Сейчас: жду первый осмысленный апдейт от Codex.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_status(status: str) -> str:
+        normalized = " ".join(status.split()).strip()
+        if not normalized:
+            return ""
+        if len(normalized) > 200:
+            normalized = normalized[:197].rstrip() + "..."
+        return normalized
+
+    async def _safe_edit(self, text: str, reply_markup: InlineKeyboardMarkup | None) -> None:
+        if self.message is None:
+            return
+        try:
+            await self.bot.edit_message_text(
+                chat_id=self.chat_id,
+                message_id=self.message.message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            self._last_rendered_text = text
+        except TelegramBadRequest as exc:
+            error_text = str(exc)
+            if "message is not modified" in error_text:
+                self._last_rendered_text = text
+                return
+            if "message to edit not found" in error_text:
+                return
+            raise
 
     async def finish(
         self,
@@ -39,20 +122,15 @@ class TelegramStreamEditor:
     ) -> str:
         if self.message is None:
             return full_text
+        self._stop_event.set()
+        if self._refresh_task is not None:
+            await self._refresh_task
+            self._refresh_task = None
         body = (final_text or "").strip()
         if not body:
             body = "Ответ пуст."
-        try:
-            await self.bot.edit_message_text(
-                chat_id=self.chat_id,
-                message_id=self.message.message_id,
-                text=body,
-                reply_markup=reply_markup,
-            )
-        except TelegramBadRequest as exc:
-            text = str(exc)
-            if "message is not modified" not in text and "message to edit not found" not in text:
-                raise
+        async with self._edit_lock:
+            await self._safe_edit(text=body, reply_markup=reply_markup)
         if len(full_text) >= self.send_log_threshold:
             data = full_text.encode("utf-8", errors="replace")
             doc = BufferedInputFile(data, filename="codex_output.log")

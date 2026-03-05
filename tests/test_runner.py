@@ -78,3 +78,10 @@ def test_sanitize_history_for_prompt_collapses_multiline_history() -> None:
     clean = CodexRunner._sanitize_history_for_prompt(content)
 
     assert clean == "Первая строка старого ответа Вторая строка старого ответа Третья строка старого ответа"
+
+
+def test_extract_progress_text_keeps_human_status_only() -> None:
+    assert CodexRunner._extract_progress_text("[stderr] Сначала посмотрю FS.md и bot.py.\n") == "Сначала посмотрю FS.md и bot.py."
+    assert CodexRunner._extract_progress_text("[stderr] exec\n") is None
+    assert CodexRunner._extract_progress_text("[stderr] /bin/bash -lc \"sed -n '1,220p' FS.md\"\n") is None
+    assert CodexRunner._extract_progress_text("[stderr] requirements.txt\n") is None

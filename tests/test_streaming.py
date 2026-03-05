@@ -17,6 +17,7 @@ def test_render_done_uses_clean_answer_only() -> None:
             self.text: str | None = None
             self.document_sent = False
             self.reply_markup = None
+            self.edits: list[str] = []
 
         async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
             self.text = text
@@ -25,6 +26,7 @@ def test_render_done_uses_clean_answer_only() -> None:
         async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
             self.text = text
             self.reply_markup = reply_markup
+            self.edits.append(text)
 
         async def send_document(self, chat_id: int, document, caption: str) -> None:
             self.document_sent = True
@@ -44,3 +46,35 @@ def test_render_done_uses_clean_answer_only() -> None:
         return bot.text
 
     assert asyncio.run(run()) == "Чистый ответ"
+
+
+def test_progress_status_is_rendered_before_finish() -> None:
+    class DummyBot:
+        def __init__(self) -> None:
+            self.text: str | None = None
+            self.edits: list[str] = []
+
+        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+            self.text = text
+            return SimpleNamespace(message_id=10)
+
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
+            self.text = text
+            self.edits.append(text)
+
+        async def send_document(self, chat_id: int, document, caption: str) -> None:
+            return None
+
+    async def run() -> tuple[str | None, list[str]]:
+        bot = DummyBot()
+        editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=0.01, tail_chars=50, send_log_threshold=1000)
+        await editor.start("Running...")
+        await editor.publish_status("Смотрю FS.md")
+        await asyncio.sleep(0.03)
+        await editor.finish(True, "done", final_text="Финальный ответ", full_text="короткий лог")
+        return bot.text, bot.edits
+
+    final_text, edits = asyncio.run(run())
+
+    assert any("Сейчас: Смотрю FS.md" in item for item in edits)
+    assert final_text == "Финальный ответ"
