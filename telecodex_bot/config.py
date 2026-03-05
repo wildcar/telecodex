@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     run_timeout_sec: int = Field(default=1800, alias="RUN_TIMEOUT_SEC")
     session_history_items: int = Field(default=8, alias="SESSION_HISTORY_ITEMS")
     sessions_list_limit: int = Field(default=20, alias="SESSIONS_LIST_LIMIT")
+    telecodex_admin_chat_ids: str = Field(default="", alias="TELECODEX_ADMIN_CHAT_IDS")
 
     @field_validator("stream_update_interval_sec")
     @classmethod
@@ -58,6 +59,21 @@ class Settings(BaseSettings):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.history_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def admin_chat_ids(self) -> set[int]:
+        if not self.telecodex_admin_chat_ids.strip():
+            return set()
+        values: set[int] = set()
+        for raw_item in self.telecodex_admin_chat_ids.split(","):
+            item = raw_item.strip()
+            if not item:
+                continue
+            try:
+                values.add(int(item))
+            except ValueError as exc:
+                raise ValueError("TELECODEX_ADMIN_CHAT_IDS must contain comma-separated integers") from exc
+        return values
 
 
 @lru_cache(maxsize=1)

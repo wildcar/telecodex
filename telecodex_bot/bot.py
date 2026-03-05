@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
@@ -29,12 +32,21 @@ class ActiveRun:
 
 
 class TelecodexApplication:
-    def __init__(self, bot: Bot, dispatcher: Dispatcher, repo: Repository, runner: CodexRunner, settings: Settings) -> None:
+    def __init__(
+        self,
+        bot: Bot,
+        dispatcher: Dispatcher,
+        repo: Repository,
+        runner: CodexRunner,
+        settings: Settings,
+        restart_callback: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.bot = bot
         self.dispatcher = dispatcher
         self.repo = repo
         self.runner = runner
         self.settings = settings
+        self.restart_callback = restart_callback or self._restart_process
         self.active_runs: dict[int, ActiveRun] = {}
         self.router = Router()
         self._register_handlers()
@@ -150,6 +162,10 @@ class TelecodexApplication:
             run.cancel_event.set()
             await message.answer("Отмена запрошена.", reply_markup=self._menu_keyboard())
 
+        @self.router.message(Command("restart"))
+        async def restart(message: Message) -> None:
+            await self._handle_restart(message)
+
         @self.router.message(Command("run"))
         async def run_cmd(message: Message) -> None:
             prompt = _command_arg(message.text)
@@ -251,7 +267,7 @@ class TelecodexApplication:
                 "1. Выберите проект.\n"
                 "2. Выберите или создайте сессию.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
-                "Команды как fallback: /project, /session, /run, /cancel."
+                "Команды как fallback: /project, /session, /run, /cancel, /restart."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
@@ -362,6 +378,18 @@ class TelecodexApplication:
     async def _send_menu(self, message: Message) -> None:
         await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard())
 
+    async def _handle_restart(self, message: Message) -> None:
+        chat_id = message.chat.id
+        if not self._is_admin_chat(chat_id):
+            await message.answer("Команда недоступна.")
+            return
+        if self.active_runs:
+            await message.answer("Есть активные задачи. Сначала дождитесь завершения или выполните /cancel.")
+            return
+        logger.warning("Restart requested by admin", extra={"chat_id": chat_id})
+        await message.answer("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
+        asyncio.create_task(self.restart_callback())
+
     async def _state_card(self, chat_id: int) -> str:
         state = await self.repo.get_chat_state(chat_id)
         run = self.active_runs.get(chat_id)
@@ -437,6 +465,14 @@ class TelecodexApplication:
         builder.adjust(2)
         return builder.as_markup()
 
+    def _is_admin_chat(self, chat_id: int) -> bool:
+        return chat_id in self.settings.admin_chat_ids
+
+    async def _restart_process(self) -> None:
+        await asyncio.sleep(0.2)
+        await self.dispatcher.stop_polling()
+        os.kill(os.getpid(), signal.SIGTERM)
+
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
         return session.alias or f"Сессия {session.id[:8]}"
@@ -466,4 +502,3 @@ def _append_log(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fp:
         fp.write(text)
-

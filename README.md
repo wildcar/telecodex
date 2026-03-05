@@ -63,6 +63,7 @@ requirements.txt
 - обычный текст = запуск задачи
 - `/status`
 - `/cancel`
+- `/restart`
 - `/last`
 
 ## 4. Установка (Ubuntu 22.04/24.04)
@@ -84,6 +85,7 @@ cp .env.example .env
 - `TELEGRAM_BOT_TOKEN`
 - `TELECODEX_PROJECTS_JSON` (только whitelist абсолютных путей)
 - `CODEX_COMMAND`
+- `TELECODEX_ADMIN_CHAT_IDS` (comma-separated chat id для админ-команд, например `/restart`)
 
 Инициализация service:
 
