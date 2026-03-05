@@ -34,7 +34,8 @@ class CodexRunner:
     ) -> str:
         history_lines = []
         for item in recent_history:
-            history_lines.append(f"{item.role}: {item.content}")
+            clean_content = CodexRunner._sanitize_history_for_prompt(item.content)
+            history_lines.append(f"{item.role}: {clean_content}")
         history_blob = "\n".join(history_lines) if history_lines else "(empty)"
         return (
             "Session context:\n"
@@ -138,7 +139,7 @@ class CodexRunner:
 
     @staticmethod
     def _is_noise_line(line: str) -> bool:
-        stripped = line.strip()
+        stripped = CodexRunner._normalize_line(line).strip()
         if not stripped:
             return False
         lower = stripped.lower()
@@ -175,17 +176,32 @@ class CodexRunner:
             return True
         return False
 
+    @staticmethod
+    def _normalize_line(line: str) -> str:
+        normalized = line.strip()
+        while True:
+            if normalized.startswith("[stderr]"):
+                normalized = normalized[len("[stderr]") :].strip()
+                continue
+            if normalized.startswith("[stdout]"):
+                normalized = normalized[len("[stdout]") :].strip()
+                continue
+            if normalized.startswith("[stderr] "):
+                normalized = normalized[len("[stderr] ") :].strip()
+                continue
+            if normalized.startswith("[stdout] "):
+                normalized = normalized[len("[stdout] ") :].strip()
+                continue
+            break
+        return normalized
+
     @classmethod
     def _extract_assistant_text(cls, lines: list[str]) -> str:
         clean_lines: list[str] = []
         previous = ""
         skip_next_user_task_line = False
         for raw in lines:
-            line = raw.rstrip("\n")
-            if line.startswith("[stderr] "):
-                line = line[len("[stderr] ") :]
-            if line.startswith("[stdout] "):
-                line = line[len("[stdout] ") :]
+            line = cls._normalize_line(raw.rstrip("\n"))
             if skip_next_user_task_line and line.strip():
                 skip_next_user_task_line = False
                 continue
@@ -204,3 +220,17 @@ class CodexRunner:
             clean_lines.append(normalized)
             previous = normalized
         return "\n".join(clean_lines).strip()
+
+    @classmethod
+    def _sanitize_history_for_prompt(cls, content: str) -> str:
+        parts = content.splitlines()
+        cleaned = cls._extract_assistant_text(parts)
+        if cleaned:
+            return cleaned
+        fallback = []
+        for part in parts:
+            normalized = cls._normalize_line(part)
+            if not normalized or cls._is_noise_line(normalized):
+                continue
+            fallback.append(normalized)
+        return "\n".join(fallback).strip() or "(filtered noisy history)"
