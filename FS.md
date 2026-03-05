@@ -83,7 +83,7 @@ E) Вывод в Telegram
 - Управление процессами: `asyncio.create_subprocess_exec`.
 - Логи: `logging` + `RotatingFileHandler`.
 - Конфиг: `.env` + `pydantic-settings`.
-- Тесты должны запускаться в локальном `.venv` командой вида `./.venv/bin/pytest -q` без обязательной ручной установки `PYTHONPATH`.
+- Тесты должны запускаться локально командой `cd /home/codex/telecodex_bot && ./.venv/bin/pytest -q` без обязательной ручной установки `PYTHONPATH`.
 
 Интеграция с Codex CLI
 - Бот не выполняет произвольные команды пользователя.
