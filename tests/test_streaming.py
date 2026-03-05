@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from aiogram.types import InlineKeyboardMarkup
+
 from telecodex_bot.streaming import TelegramStreamEditor
 
 
@@ -14,9 +16,15 @@ def test_render_done_uses_clean_answer_only() -> None:
         def __init__(self) -> None:
             self.text: str | None = None
             self.document_sent = False
+            self.reply_markup = None
 
-        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str) -> None:
+        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
             self.text = text
+            return SimpleNamespace(message_id=10)
+
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
+            self.text = text
+            self.reply_markup = reply_markup
 
         async def send_document(self, chat_id: int, document, caption: str) -> None:
             self.document_sent = True
@@ -24,8 +32,15 @@ def test_render_done_uses_clean_answer_only() -> None:
     async def run() -> str | None:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=1.0, tail_chars=50, send_log_threshold=1000)
-        editor.message = SimpleNamespace(message_id=10)
-        await editor.finish(True, "done", final_text="Чистый ответ", full_text="технический лог")
+        await editor.start("Running...")
+        await editor.finish(
+            True,
+            "done",
+            final_text="Чистый ответ",
+            full_text="технический лог",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
+        )
+        assert bot.reply_markup is not None
         return bot.text
 
     assert asyncio.run(run()) == "Чистый ответ"
