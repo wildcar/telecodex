@@ -1,0 +1,20 @@
+[Unit]
+Description=Telecodex Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=telecodexbot
+Group=telecodexbot
+WorkingDirectory=/opt/telecodexbot
+EnvironmentFile=/opt/telecodexbot/.env
+ExecStart=/opt/telecodexbot/.venv/bin/python -m telecodex_bot.main
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
