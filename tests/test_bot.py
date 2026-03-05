@@ -62,3 +62,32 @@ def test_session_line_marks_active_session(tmp_path: Path) -> None:
     line = app._format_session_line(session, session.id)
 
     assert line.startswith("→ Сессия 12345678")
+
+
+def test_menu_keyboard_hides_history_and_log_actions(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    buttons = [button.text for row in app._menu_keyboard().inline_keyboard for button in row]
+
+    assert "История" not in buttons
+    assert "Лог" not in buttons
+
+
+def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    buttons = [button.text for row in app._result_keyboard().inline_keyboard for button in row]
+
+    assert buttons == ["Новая сессия", "Сменить проект"]

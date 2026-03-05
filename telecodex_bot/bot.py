@@ -150,10 +150,6 @@ class TelecodexApplication:
             run.cancel_event.set()
             await message.answer("Отмена запрошена.", reply_markup=self._menu_keyboard())
 
-        @self.router.message(Command("last"))
-        async def last(message: Message) -> None:
-            await self._send_last_log(message)
-
         @self.router.message(Command("run"))
         async def run_cmd(message: Message) -> None:
             prompt = _command_arg(message.text)
@@ -239,10 +235,6 @@ class TelecodexApplication:
             )
             await callback.answer("Сессия обновлена.")
 
-        @self.router.callback_query(F.data == "action:continue")
-        async def action_continue(callback: CallbackQuery) -> None:
-            await callback.answer("Отправьте следующее сообщение в этот чат.")
-
         @self.router.callback_query(F.data == "action:stop")
         async def action_stop(callback: CallbackQuery) -> None:
             run = self.active_runs.get(callback.message.chat.id)
@@ -252,12 +244,6 @@ class TelecodexApplication:
             run.cancel_event.set()
             await callback.answer("Отмена запрошена.")
 
-        @self.router.callback_query(F.data == "action:log")
-        async def action_log(callback: CallbackQuery) -> None:
-            if callback.message is not None:
-                await self._send_last_log(callback.message)
-            await callback.answer()
-
         @self.router.callback_query(F.data == "help:show")
         async def help_show(callback: CallbackQuery) -> None:
             text = (
@@ -265,7 +251,7 @@ class TelecodexApplication:
                 "1. Выберите проект.\n"
                 "2. Выберите или создайте сессию.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
-                "Команды как fallback: /project, /session, /run, /cancel, /last."
+                "Команды как fallback: /project, /session, /run, /cancel."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
@@ -400,21 +386,6 @@ class TelecodexApplication:
             f"Последняя активность: {last_seen}"
         )
 
-    async def _send_last_log(self, message: Message) -> None:
-        state = await self.repo.get_chat_state(message.chat.id)
-        if not state or not state.session_id:
-            await message.answer("Сессия не выбрана.")
-            return
-        session_item = await self.repo.get_session(state.session_id)
-        if not session_item:
-            await message.answer("Сессия не найдена.")
-            return
-        output = _tail_file(Path(session_item.history_log_path), max_lines=60)
-        if not output:
-            await message.answer("Лог пуст.")
-            return
-        await message.answer(output[-3900:])
-
     async def _edit_callback_message(
         self,
         callback: CallbackQuery,
@@ -430,10 +401,9 @@ class TelecodexApplication:
         builder.button(text="Проект", callback_data="project:list")
         builder.button(text="Сессия", callback_data="session:list")
         builder.button(text="Новая сессия", callback_data="session:new")
-        builder.button(text="История", callback_data="action:log")
         builder.button(text="Стоп", callback_data="action:stop")
         builder.button(text="Помощь", callback_data="help:show")
-        builder.adjust(2, 2, 2)
+        builder.adjust(2, 2, 1)
         return builder.as_markup()
 
     def _project_keyboard(self) -> InlineKeyboardMarkup:
@@ -462,11 +432,9 @@ class TelecodexApplication:
 
     def _result_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Продолжить", callback_data="action:continue")
         builder.button(text="Новая сессия", callback_data="session:new")
         builder.button(text="Сменить проект", callback_data="project:list")
-        builder.button(text="Лог", callback_data="action:log")
-        builder.adjust(2, 2)
+        builder.adjust(2)
         return builder.as_markup()
 
     @staticmethod
@@ -499,10 +467,3 @@ def _append_log(path: Path, text: str) -> None:
     with path.open("a", encoding="utf-8") as fp:
         fp.write(text)
 
-
-def _tail_file(path: Path, max_lines: int) -> str:
-    if not path.exists():
-        return ""
-    with path.open("r", encoding="utf-8", errors="replace") as fp:
-        lines = fp.readlines()
-    return "".join(lines[-max_lines:])
