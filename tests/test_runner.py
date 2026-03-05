@@ -38,6 +38,21 @@ def test_extract_assistant_text_handles_nested_stderr_prefix() -> None:
     assert text == "Проверка\nНа связи. Готов к работе."
 
 
+def test_extract_assistant_text_skips_user_prompt_echo_and_duplicates() -> None:
+    lines = [
+        "[stderr] User task:\n",
+        "[stderr] Так админка не мешает обычному UX.\n",
+        "[stderr] Так админка не мешает обычному UX.\n",
+        "[stderr] Если хотите, следующим сообщением могу уже предложить конкретно:\n",
+        "[stderr] Если хотите, следующим сообщением могу уже предложить конкретно:\n",
+        "[stderr] 1. финальную структуру кнопок для пользователя,\n",
+    ]
+
+    text = CodexRunner._extract_assistant_text(lines, user_prompt="Так админка не мешает обычному UX.")
+
+    assert text == "Если хотите, следующим сообщением могу уже предложить конкретно:\n1. финальную структуру кнопок для пользователя,"
+
+
 def test_sanitize_history_for_prompt_removes_technical_lines() -> None:
     content = (
         "[stderr] OpenAI Codex v0.111.0 (research preview)\n"

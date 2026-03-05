@@ -210,6 +210,7 @@ class TelecodexApplication:
         await stream.start(f"project={state.project_name} session={session_item.id}")
 
         cancel_event = asyncio.Event()
+        typing_task = asyncio.create_task(self._typing_loop(chat_id, cancel_event))
         self.active_runs[chat_id] = ActiveRun(
             started_at=asyncio.get_running_loop().time(),
             project_name=state.project_name,
@@ -228,6 +229,8 @@ class TelecodexApplication:
                 cancel_event=cancel_event,
             )
         finally:
+            cancel_event.set()
+            await typing_task
             self.active_runs.pop(chat_id, None)
 
         assistant_text = (result.assistant_text or result.display_text or result.output).strip()
@@ -245,7 +248,7 @@ class TelecodexApplication:
             summary = f"failed: code={result.return_code}"
             final_text = assistant_text or "Codex завершился с ошибкой без текстового ответа."
 
-        await stream.finish(result.success, summary, final_text=final_text)
+        await stream.finish(result.success, summary, final_text=final_text, full_text=result.output)
 
     async def _create_session(self, project_name: str) -> SessionRecord:
         project_path = self.settings.projects[project_name]
@@ -267,7 +270,17 @@ class TelecodexApplication:
 
     async def _on_output(self, session_item: SessionRecord, stream: TelegramStreamEditor, chunk: str) -> None:
         _append_log(Path(session_item.history_log_path), chunk)
-        await stream.push(chunk)
+
+    async def _typing_loop(self, chat_id: int, cancel_event: asyncio.Event) -> None:
+        while not cancel_event.is_set():
+            try:
+                await self.bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception:
+                logger.exception("Failed to send typing action", extra={"chat_id": chat_id})
+            try:
+                await asyncio.wait_for(cancel_event.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                continue
 
 
 
