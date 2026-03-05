@@ -8,11 +8,10 @@
 5) Бот разворачивается как сервис на Ubuntu (systemd), с конфигом через env/.env.
 
 Текущая задача (инкремент)
-- Исправить падение бота при записи chat_state:
-  `RuntimeError: threads can only be started once` в `repository.py`.
-- Причина: некорректный паттерн работы с aiosqlite-соединением (`async with await self._connect()`).
-- Требование фикса: корректное открытие/закрытие соединений без повторного запуска потока aiosqlite.
-- Добавить/обновить тесты на критичный путь работы Repository после фикса.
+- Исправить ошибку запуска systemd-сервиса:
+  `/opt/telecodexbot/.venv/bin/python: ModuleNotFoundError: No module named telecodex_bot`.
+- Причина: в unit задано `ProtectHome=true`, при этом код расположен в `/home/...` (через симлинк `/opt/telecodexbot`), что блокирует доступ к исходникам.
+- Требование фикса: скорректировать unit, чтобы сервис имел доступ к рабочей директории и импортам проекта.
 
 Принятые решения по умолчанию (для реализации)
 - Telegram framework: aiogram v3.

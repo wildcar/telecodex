@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=telecodexbot
-Group=telecodexbot
+User=keeper
+Group=keeper
 WorkingDirectory=/opt/telecodexbot
 EnvironmentFile=/opt/telecodexbot/.env
 ExecStart=/opt/telecodexbot/.venv/bin/python -m telecodex_bot.main
@@ -14,7 +14,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
+ProtectHome=false
 
 [Install]
 WantedBy=multi-user.target
