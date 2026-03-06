@@ -561,7 +561,7 @@ class TelecodexApplication:
             tail_chars=self.settings.stream_tail_chars,
             send_log_threshold=self.settings.stream_send_log_threshold,
         )
-        await stream.start("Telecodex thinking...")
+        await stream.start("Telecodex thinking")
         cancel_event = asyncio.Event()
         typing_task = asyncio.create_task(self._typing_loop(chat_id, cancel_event))
         self.active_runs[chat_id] = ActiveRun(

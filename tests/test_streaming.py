@@ -19,7 +19,7 @@ def test_render_done_uses_clean_answer_only() -> None:
             self.reply_markup = None
             self.parse_mode = None
 
-        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+        async def send_message(self, chat_id: int, text: str, parse_mode=None) -> SimpleNamespace:
             self.text = text
             return SimpleNamespace(message_id=10)
 
@@ -57,7 +57,7 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
             self.text: str | None = None
             self.edits: list[str] = []
 
-        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+        async def send_message(self, chat_id: int, text: str, parse_mode=None) -> SimpleNamespace:
             self.text = text
             return SimpleNamespace(message_id=10)
 
@@ -71,7 +71,7 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
     async def run() -> tuple[str | None, list[str]]:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=0.01, tail_chars=50, send_log_threshold=1000)
-        await editor.start("Telecodex thinking...")
+        await editor.start("Telecodex thinking")
         await editor.publish_status("Смотрю FS.md")
         await asyncio.sleep(0.03)
         await editor.publish_answer("Первая часть ответа")
@@ -81,10 +81,12 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
 
     final_text, edits = asyncio.run(run())
 
-    assert any("Telecodex working..." in item for item in edits)
+    assert any("Telecodex working" in item for item in edits)
     assert any("Смотрю FS.md" in item for item in edits)
     assert any("Первая часть ответа" in item for item in edits)
-    assert any("Telecodex working..." in item and "Первая часть ответа" in item for item in edits)
+    assert any("Telecodex working" in item and "Первая часть ответа" in item for item in edits)
+    assert any("<b>🔵 " in item for item in edits)
+    assert not any("Telecodex working" in item and "\n\n" in item for item in edits)
     assert final_text == "Финальный ответ"
 
 
@@ -94,7 +96,7 @@ def test_finish_renders_code_blocks_as_html_when_short() -> None:
             self.text: str | None = None
             self.parse_mode: str | None = None
 
-        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+        async def send_message(self, chat_id: int, text: str, parse_mode=None) -> SimpleNamespace:
             self.text = text
             return SimpleNamespace(message_id=10)
 
@@ -125,7 +127,7 @@ def test_finish_truncates_too_long_final_text_and_sends_document() -> None:
             self.text: str | None = None
             self.document_sent = False
 
-        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+        async def send_message(self, chat_id: int, text: str, parse_mode=None) -> SimpleNamespace:
             self.text = text
             return SimpleNamespace(message_id=10)
 

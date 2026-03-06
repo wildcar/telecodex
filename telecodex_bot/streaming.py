@@ -12,6 +12,7 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 TELEGRAM_TEXT_LIMIT = 4096
 STATUS_HISTORY_LIMIT = 4
 CODE_BLOCK_RE = re.compile(r"```[^\n`]*\n?(.*?)```", re.DOTALL)
+SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
 @dataclass(slots=True)
@@ -45,14 +46,17 @@ class TelegramStreamEditor:
         self._refresh_task: asyncio.Task[None] | None = None
         self._edit_lock = asyncio.Lock()
         self._started_at = 0.0
+        self._spinner_index = 0
 
     async def start(self, title: str) -> None:
         self._title = title
         self._started_at = asyncio.get_running_loop().time()
         self._stop_event = asyncio.Event()
-        self.message = await self.bot.send_message(self.chat_id, title)
-        self._last_rendered_text = title
-        self._last_parse_mode = None
+        self._spinner_index = 0
+        rendered = self._render_current_text()
+        self.message = await self.bot.send_message(self.chat_id, rendered.text, parse_mode=rendered.parse_mode)
+        self._last_rendered_text = rendered.text
+        self._last_parse_mode = rendered.parse_mode
         self._refresh_task = asyncio.create_task(self._refresh_loop())
 
     async def publish_status(self, status: str) -> None:
@@ -83,6 +87,7 @@ class TelegramStreamEditor:
     async def _refresh_loop(self) -> None:
         while not self._stop_event.is_set():
             await self._render_progress()
+            self._spinner_index = (self._spinner_index + 1) % len(SPINNER_FRAMES)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_sec)
             except asyncio.TimeoutError:
@@ -101,21 +106,35 @@ class TelegramStreamEditor:
         elapsed = max(0, int(asyncio.get_running_loop().time() - self._started_at))
         if self._answer_text:
             return self._render_working_text(elapsed, answer_text=self._answer_text)
-        title = "Telecodex working..." if self._status_lines else self._title
-        lines = [f"{title} ({elapsed}s)"]
+        title = "Telecodex working" if self._status_lines else self._title
+        plain_lines = [self._status_header_plain(title, elapsed)]
+        html_lines = [self._status_header_html(title, elapsed)]
         if self._status_lines:
-            lines.append("")
-            lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])
-        return RenderedTelegramText(self._fit_text("\n".join(lines)))
+            plain_lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])
+            html_lines.extend(html.escape(item) for item in self._status_lines[-STATUS_HISTORY_LIMIT:])
+        return self._render_progress_text(plain_lines, html_lines)
 
     def _render_working_text(self, elapsed: int, answer_text: str) -> RenderedTelegramText:
-        lines = [f"Telecodex working... ({elapsed}s)"]
+        plain_lines = [self._status_header_plain("Telecodex working", elapsed)]
+        html_lines = [self._status_header_html("Telecodex working", elapsed)]
         if self._status_lines:
-            lines.append("")
-            lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])
-        lines.append("")
-        lines.append(self._stream_preview_text(answer_text))
-        return RenderedTelegramText(self._fit_text("\n".join(lines)))
+            plain_lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])
+            html_lines.extend(html.escape(item) for item in self._status_lines[-STATUS_HISTORY_LIMIT:])
+        preview_text = self._stream_preview_text(answer_text)
+        plain_lines.append(preview_text)
+        html_lines.append(html.escape(preview_text))
+        return self._render_progress_text(plain_lines, html_lines)
+
+    def _render_progress_text(self, plain_lines: list[str], html_lines: list[str]) -> RenderedTelegramText:
+        plain_text = self._fit_text("\n".join(plain_lines))
+        html_text = self._fit_text("\n".join(html_lines))
+        return RenderedTelegramText(html_text, parse_mode="HTML", fallback_text=plain_text)
+
+    def _status_header_plain(self, title: str, elapsed: int) -> str:
+        return f"🔵 {title} {SPINNER_FRAMES[self._spinner_index]} ({elapsed}s)"
+
+    def _status_header_html(self, title: str, elapsed: int) -> str:
+        return f"<b>{html.escape(self._status_header_plain(title, elapsed))}</b>"
 
     def _stream_preview_text(self, text: str) -> str:
         body = text.strip() or "Ответ пуст."
