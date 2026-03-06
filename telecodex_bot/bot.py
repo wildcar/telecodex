@@ -526,7 +526,7 @@ class TelecodexApplication:
             return
         logger.warning("Restart requested by admin", extra={"chat_id": chat_id})
         _save_restart_request(self._restart_marker_path(), chat_id=chat_id, requested_at=datetime.now(UTC))
-        await message.answer("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
+        await message.answer("Перезапуск сервиса запрошен.")
         asyncio.create_task(self.restart_callback())
 
     async def notify_restart_success_if_needed(self) -> None:

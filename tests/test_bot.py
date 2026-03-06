@@ -256,7 +256,7 @@ async def test_restart_schedules_callback_for_admin(tmp_path: Path) -> None:
     await app._handle_restart(message)
     await asyncio.sleep(0)
 
-    message.answer.assert_awaited_once_with("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
+    message.answer.assert_awaited_once_with("Перезапуск сервиса запрошен.")
     restart_callback.assert_awaited_once()
     request = _load_restart_request(app._restart_marker_path())
     assert request is not None
