@@ -30,11 +30,6 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS app_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
 """
 
 

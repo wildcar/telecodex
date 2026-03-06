@@ -151,22 +151,6 @@ class Repository:
             for row in rows
         ]
 
-    async def get_meta(self, key: str) -> str | None:
-        row = await self._fetchone("SELECT value FROM app_meta WHERE key = ?", (key,))
-        if not row:
-            return None
-        return row["value"]
-
-    async def set_meta(self, key: str, value: str) -> None:
-        await self._execute(
-            """
-            INSERT INTO app_meta(key, value)
-            VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            (key, value),
-        )
-
     async def delete_project(self, name: str) -> bool:
         now = self._now()
         with self._connect() as conn:

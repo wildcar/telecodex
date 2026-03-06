@@ -105,7 +105,7 @@ class TelecodexApplication:
         self.deepgram = deepgram
         self.restart_callback = restart_callback or self._restart_process
         self.active_runs: dict[int, ActiveRun] = {}
-        self.projects: dict[str, Path] = dict(self.settings.projects)
+        self.projects: dict[str, Path] = {}
         self.pending_project_drafts: dict[int, PendingProjectDraft] = {}
         self.router = Router()
         access_middleware = AccessMiddleware(self.settings.admin_chat_ids)
@@ -118,11 +118,6 @@ class TelecodexApplication:
         await self.bot.set_my_commands(self._bot_commands())
 
     async def load_projects(self) -> None:
-        bootstrapped = await self.repo.get_meta("projects_bootstrapped")
-        if bootstrapped != "1":
-            for name, path in self.settings.projects.items():
-                await self.repo.save_project(name, str(path))
-            await self.repo.set_meta("projects_bootstrapped", "1")
         stored = await self.repo.list_projects()
         self.projects = {item.name: Path(item.project_path) for item in stored}
 

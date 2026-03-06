@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,7 +11,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
-    telecodex_projects_json: str = Field(alias="TELECODEX_PROJECTS_JSON")
     deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
     deepgram_base_url: str = Field(default="https://api.deepgram.com/v1", alias="DEEPGRAM_BASE_URL")
     deepgram_model: str = Field(default="nova-2", alias="DEEPGRAM_MODEL")
@@ -53,28 +50,6 @@ class Settings(BaseSettings):
         if value < 0:
             raise ValueError("DEEPGRAM_RETRIES must be >= 0")
         return value
-
-    @property
-    def projects(self) -> Dict[str, Path]:
-        try:
-            raw_projects = json.loads(self.telecodex_projects_json)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid TELECODEX_PROJECTS_JSON: {exc}") from exc
-
-        if not isinstance(raw_projects, dict) or not raw_projects:
-            raise ValueError("TELECODEX_PROJECTS_JSON must be a non-empty JSON object")
-
-        normalized: Dict[str, Path] = {}
-        for name, path_str in raw_projects.items():
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError("Project names must be non-empty strings")
-            if not isinstance(path_str, str) or not path_str.strip():
-                raise ValueError(f"Project path for {name!r} must be non-empty string")
-            path = Path(path_str).expanduser().resolve(strict=False)
-            if not path.is_absolute():
-                raise ValueError(f"Project path for {name!r} must be absolute")
-            normalized[name] = path
-        return normalized
 
     def ensure_dirs(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

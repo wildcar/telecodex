@@ -24,7 +24,6 @@ from telecodex_bot.runner import CodexRunner
 def build_settings(tmp_path: Path) -> Settings:
     return Settings(
         TELEGRAM_BOT_TOKEN="123:ABC",
-        TELECODEX_PROJECTS_JSON='{"demo":"/tmp/demo","infra":"/tmp/infra"}',
         DB_PATH=tmp_path / "db.sqlite3",
         LOG_DIR=tmp_path / "logs",
         HISTORY_DIR=tmp_path / "history",
@@ -97,6 +96,7 @@ def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
         runner=CodexRunner("codex exec", timeout_sec=1),
         settings=build_settings(tmp_path),
     )
+    app.projects = {"demo": Path("/tmp/demo"), "infra": Path("/tmp/infra")}
 
     buttons = [button.text for row in app._project_keyboard().inline_keyboard for button in row]
 
@@ -105,6 +105,7 @@ def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
 
 def test_project_delete_keyboard_marks_projects_with_red_cross(tmp_path: Path) -> None:
     app = _build_app(tmp_path)
+    app.projects = {"demo": Path("/tmp/demo"), "infra": Path("/tmp/infra")}
 
     buttons = [button.text for row in app._project_delete_keyboard().inline_keyboard for button in row]
 
@@ -227,26 +228,13 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
 async def test_load_projects_merges_db_projects_into_runtime_map(tmp_path: Path) -> None:
     await init_db(str(tmp_path / "db.sqlite3"))
     app = _build_app(tmp_path)
+    await app.repo.save_project("demo", "/tmp/demo")
     await app.repo.save_project("custom", str(tmp_path))
 
     await app.load_projects()
 
     assert "demo" in app.projects
     assert app.projects["custom"] == tmp_path
-
-
-@pytest.mark.asyncio
-async def test_load_projects_bootstraps_only_once(tmp_path: Path) -> None:
-    await init_db(str(tmp_path / "db.sqlite3"))
-    app = _build_app(tmp_path)
-
-    await app.load_projects()
-    deleted = await app.repo.delete_project("demo")
-    assert deleted is True
-
-    await app.load_projects()
-
-    assert "demo" not in app.projects
 
 
 def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
