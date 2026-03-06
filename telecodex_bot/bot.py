@@ -448,7 +448,6 @@ class TelecodexApplication:
             await message.answer("Ошибка при загрузке голосового сообщения.")
             return
 
-        await message.answer("Голосовое сообщение получено.")
         status_message = await message.answer("Распознаю голосовое сообщение ⠋")
         stop_event = asyncio.Event()
         indicator_task = asyncio.create_task(_progress_message_indicator(status_message, stop_event))
