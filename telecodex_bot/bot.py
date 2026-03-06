@@ -181,7 +181,7 @@ class TelecodexApplication:
             if arg == "new":
                 await self.repo.set_chat_state(message.chat.id, state.project_name, None)
                 await message.answer(
-                    "Следующий запуск начнет новую сессию Codex.",
+                    "Введенное сообщение/запрос начнет новую сессию Codex",
                     reply_markup=self._menu_keyboard(),
                 )
                 return
@@ -292,7 +292,7 @@ class TelecodexApplication:
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, None)
             await self._edit_callback_message(
                 callback,
-                "Следующий запуск начнет новую сессию Codex.",
+                "Введенное сообщение/запрос начнет новую сессию Codex",
                 self._menu_keyboard(),
             )
             await callback.answer("Будет создана новая сессия.")
