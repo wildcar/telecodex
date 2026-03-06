@@ -288,7 +288,7 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
         chat=SimpleNamespace(id=1001),
         voice=SimpleNamespace(file_id="voice-1"),
         bot=bot,
-        answer=AsyncMock(side_effect=[status_message, None]),
+        answer=AsyncMock(side_effect=[None, status_message, None]),
     )
 
     await app._handle_voice_message(message)
@@ -297,6 +297,7 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
     bot.download_file.assert_awaited_once()
     deepgram.transcribe_ogg_opus.assert_awaited_once_with(b"voice-bytes")
     status_message.delete.assert_awaited_once()
-    assert message.answer.await_args_list[0].args == ("Распознаю голосовое сообщение ⠋",)
-    assert message.answer.await_args_list[1].args == ("Расшифрованный текст",)
+    assert message.answer.await_args_list[0].args == ("Голосовое сообщение получено.",)
+    assert message.answer.await_args_list[1].args == ("Распознаю голосовое сообщение ⠋",)
+    assert message.answer.await_args_list[2].args == ("Расшифрованный текст",)
     app._execute_prompt.assert_awaited_once_with(message, "Расшифрованный текст")
