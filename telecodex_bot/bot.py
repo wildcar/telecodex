@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from telecodex_bot.config import Settings
@@ -349,14 +349,6 @@ class TelecodexApplication:
                 parse_mode="HTML",
             )
             await callback.answer()
-
-        @self.router.callback_query(F.data == "project:new:path:current")
-        async def project_new_path_current(callback: CallbackQuery) -> None:
-            draft = self.pending_project_drafts.get(callback.message.chat.id)
-            if draft is None:
-                await callback.answer("Создание проекта не активно.", show_alert=True)
-                return
-            await callback.answer(str(draft.current_path))
 
         @self.router.callback_query(F.data == "project:new:path:select")
         async def project_new_path_select(callback: CallbackQuery) -> None:
@@ -811,22 +803,13 @@ class TelecodexApplication:
     def _project_path_browser_keyboard(self, draft: PendingProjectDraft) -> InlineKeyboardMarkup:
         entries = self._project_browser_entries(draft.current_path)
         draft.entries = entries
-        builder = InlineKeyboardBuilder()
+        rows: list[list[InlineKeyboardButton]] = []
         if draft.current_path != draft.current_path.parent:
-            builder.button(text="⬆️ ..", callback_data="project:new:path:up")
-        for index, name in enumerate(entries):
-            builder.button(text=f"📁 {name}", callback_data=f"project:new:path:open:{index}")
-        builder.button(text="✅ Выбрать", callback_data="project:new:path:select")
-        builder.button(text=str(draft.current_path), callback_data="project:new:path:current")
-        builder.button(text="Назад", callback_data="project:new:cancel")
-        sizes = []
-        if draft.current_path != draft.current_path.parent:
-            sizes.append(1)
-        sizes.extend([1] * len(entries))
-        sizes.append(2)
-        sizes.append(1)
-        builder.adjust(*sizes)
-        return builder.as_markup()
+            rows.append([InlineKeyboardButton(text="⬆️ ..", callback_data="project:new:path:up")])
+        rows.extend(self._project_browser_folder_rows(entries))
+        rows.append([InlineKeyboardButton(text=f"✅ {draft.current_path}", callback_data="project:new:path:select")])
+        rows.append([InlineKeyboardButton(text="Назад", callback_data="project:new:cancel")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
     def _project_path_browser_text(self, draft: PendingProjectDraft) -> str:
         return (
@@ -842,6 +825,23 @@ class TelecodexApplication:
             logger.warning("Failed to list project browser directory", extra={"path": str(path)})
             return []
         return sorted(items, key=str.casefold)
+
+    def _project_browser_folder_rows(self, entries: list[str]) -> list[list[InlineKeyboardButton]]:
+        rows: list[list[InlineKeyboardButton]] = []
+        current_row: list[InlineKeyboardButton] = []
+        current_width = 0
+        for index, name in enumerate(entries):
+            button = InlineKeyboardButton(text=f"📁 {name}", callback_data=f"project:new:path:open:{index}")
+            button_width = max(8, len(name) + 3)
+            if current_row and (len(current_row) >= 3 or current_width + button_width > 30):
+                rows.append(current_row)
+                current_row = []
+                current_width = 0
+            current_row.append(button)
+            current_width += button_width
+        if current_row:
+            rows.append(current_row)
+        return rows
 
     async def _complete_project_creation(self, chat_id: int, draft: PendingProjectDraft) -> None:
         project_name = draft.name or ""

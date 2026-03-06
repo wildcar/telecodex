@@ -454,16 +454,17 @@ def test_project_path_browser_keyboard_lists_directories_and_confirm(tmp_path: P
     (tmp_path / "beta").mkdir()
     draft = PendingProjectDraft(name="custom", current_path=tmp_path)
 
-    buttons = [button.text for row in app._project_path_browser_keyboard(draft).inline_keyboard for button in row]
+    keyboard = app._project_path_browser_keyboard(draft)
+    buttons = [button.text for row in keyboard.inline_keyboard for button in row]
 
     assert buttons == [
         "⬆️ ..",
         "📁 alpha",
         "📁 beta",
-        "✅ Выбрать",
-        str(tmp_path),
+        f"✅ {tmp_path}",
         "Назад",
     ]
+    assert [len(row) for row in keyboard.inline_keyboard] == [1, 2, 1, 1]
 
 
 @pytest.mark.asyncio
