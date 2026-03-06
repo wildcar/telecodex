@@ -14,7 +14,10 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
     telecodex_projects_json: str = Field(alias="TELECODEX_PROJECTS_JSON")
-    codex_command: str = Field(default="codex exec", alias="CODEX_COMMAND")
+    codex_command: str = Field(
+        default="codex exec --dangerously-bypass-approvals-and-sandbox",
+        alias="CODEX_COMMAND",
+    )
     db_path: Path = Field(default=Path("./data/telecodex.db"), alias="DB_PATH")
     log_dir: Path = Field(default=Path("./logs"), alias="LOG_DIR")
     history_dir: Path = Field(default=Path("./history"), alias="HISTORY_DIR")

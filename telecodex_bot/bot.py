@@ -75,7 +75,8 @@ class TelecodexApplication:
         @self.router.message(Command("projects"))
         async def projects(message: Message) -> None:
             await message.answer(
-                "Доступные проекты:\n" + "\n".join(f"• {name}" for name in self.settings.projects),
+                "Доступные проекты:\n"
+                + "\n".join(f"• {name}: {path}" for name, path in self.settings.projects.items()),
                 reply_markup=self._project_keyboard(),
             )
 
@@ -415,6 +416,7 @@ class TelecodexApplication:
         state = await self.repo.get_chat_state(chat_id)
         run = self.active_runs.get(chat_id)
         project = state.project_name if state and state.project_name else "не выбран"
+        project_path = str(self.settings.projects[state.project_name]) if state and state.project_name else "-"
         session_text = "не выбрана"
         updated_at = state.updated_at if state else ""
         if state and state.codex_session_id:
@@ -430,6 +432,7 @@ class TelecodexApplication:
         return (
             "Telecodex\n"
             f"Проект: {project}\n"
+            f"Путь: {project_path}\n"
             f"Сессия: {session_text}\n"
             f"Статус: {status}\n"
             f"Последняя активность: {last_seen}"
@@ -496,7 +499,7 @@ class TelecodexApplication:
 
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
-        return session.alias or f"Сессия {session.codex_session_id[:8]}"
+        return session.alias or session.codex_session_id
 
     def _format_session_line(self, session: SessionRecord, active_session_id: str | None) -> str:
         marker = "•"

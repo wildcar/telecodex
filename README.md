@@ -5,7 +5,7 @@
 ## 1. Архитектура
 
 ### Сущности
-- `Project` (из env): whitelist `name -> absolute path`.
+- `Project` (из env): `name -> absolute path`.
 - `ChatState` (SQLite `chat_state`): текущий проект и выбранный `codex_session_id` для `chat_id`.
 - `Session` (SQLite `sessions`): metadata сохраненных Codex-сессий, ключом служит сам `codex_session_id`.
 - `ActiveRun` (in-memory): активная задача в чате, `cancel_event`, `started_at`.
@@ -84,8 +84,8 @@ cp .env.example .env
 
 Заполните `.env`:
 - `TELEGRAM_BOT_TOKEN`
-- `TELECODEX_PROJECTS_JSON` (только whitelist абсолютных путей)
-- `CODEX_COMMAND`
+- `TELECODEX_PROJECTS_JSON`
+- `CODEX_COMMAND` (по умолчанию без sandbox/approval-ограничений)
 - `TELECODEX_ADMIN_CHAT_IDS` (comma-separated chat id для админ-команд, например `/restart`)
 
 Инициализация service:

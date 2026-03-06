@@ -63,7 +63,7 @@ def test_session_line_marks_active_session(tmp_path: Path) -> None:
 
     line = app._format_session_line(session, session.codex_session_id)
 
-    assert line.startswith("→ Сессия 12345678")
+    assert line.startswith("→ 12345678-1234-1234-1234-1234567890ab")
 
 
 def test_menu_keyboard_hides_history_and_log_actions(tmp_path: Path) -> None:
