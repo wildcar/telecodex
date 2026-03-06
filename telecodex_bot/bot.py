@@ -113,7 +113,7 @@ class TelecodexApplication:
             BotCommand(command="menu", description="Показать меню"),
             BotCommand(command="projects", description="Список проектов"),
             BotCommand(command="sessions", description="Список сессий"),
-            BotCommand(command="session", description="Выбрать или сбросить сессию"),
+            BotCommand(command="session", description="Выбрать или начать новую сессию"),
             BotCommand(command="status", description="Текущий статус"),
             BotCommand(command="cancel", description="Остановить задачу"),
             BotCommand(command="restart", description="Перезапустить сервис"),
@@ -145,7 +145,7 @@ class TelecodexApplication:
                 return
             await self.repo.set_chat_state(chat_id=chat_id, project_name=project_name, codex_session_id=None)
             await message.answer(
-                f"Проект: {project_name}\nСессия сброшена.",
+                f"Проект: {project_name}\nСледующий запуск начнет новую сессию.",
                 reply_markup=self._menu_keyboard(),
             )
 
@@ -186,7 +186,7 @@ class TelecodexApplication:
             if arg == "new":
                 await self.repo.set_chat_state(chat_id, state.project_name, None)
                 await message.answer(
-                    "Текущая сессия сброшена. Следующий запуск создаст новую сессию Codex.",
+                    "Следующий запуск начнет новую сессию Codex.",
                     reply_markup=self._menu_keyboard(),
                 )
                 return
@@ -289,7 +289,7 @@ class TelecodexApplication:
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, None)
             await self._edit_callback_message(
                 callback,
-                "Текущая сессия сброшена. Следующий запуск создаст новую сессию Codex.",
+                "Следующий запуск начнет новую сессию Codex.",
                 self._menu_keyboard(),
             )
             await callback.answer("Будет создана новая сессия.")
@@ -327,7 +327,7 @@ class TelecodexApplication:
             text = (
                 "Как пользоваться:\n"
                 "1. Выберите проект.\n"
-                "2. Выберите сохраненную сессию или сбросьте текущую.\n"
+                "2. Выберите сохраненную сессию или начните новую.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
                 "Команды как fallback: /project, /session, /cancel, /restart."
             )
