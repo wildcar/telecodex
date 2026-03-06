@@ -321,7 +321,9 @@ class TelecodexApplication:
             cancel_event=cancel_event,
         )
 
-        recent_history = await self.repo.get_recent_history(session_item.id, self.settings.session_history_items)
+        recent_history = []
+        if not session_item.codex_resume_ref:
+            recent_history = await self.repo.get_recent_history(session_item.id, self.settings.session_history_items)
         try:
             result = await self.runner.run(
                 session=session_item,
@@ -343,6 +345,8 @@ class TelecodexApplication:
             command=result.command,
             codex_output=result.raw_output,
         )
+        if result.codex_resume_ref and result.codex_resume_ref != session_item.codex_resume_ref:
+            await self.repo.set_codex_resume_ref(session_item.id, result.codex_resume_ref)
         await self.repo.add_history(session_item.id, "user", prompt)
         assistant_text = (result.assistant_text or result.display_text or result.output).strip()
         await self.repo.add_history(session_item.id, "assistant", assistant_text[-10000:])

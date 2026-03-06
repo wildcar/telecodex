@@ -20,6 +20,7 @@ class RunResult:
     output: str
     assistant_text: str
     display_text: str
+    codex_resume_ref: str | None
     timed_out: bool = False
     cancelled: bool = False
 
@@ -29,7 +30,9 @@ class CodexRunner:
         self.command = shlex.split(codex_command)
         self.timeout_sec = timeout_sec
 
-    def _build_command(self, prompt: str) -> list[str]:
+    def _build_command(self, prompt: str, codex_resume_ref: str | None) -> list[str]:
+        if codex_resume_ref:
+            return [*self.command, "resume", codex_resume_ref, prompt]
         return [*self.command, prompt]
 
     @staticmethod
@@ -63,8 +66,9 @@ class CodexRunner:
         on_progress: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
-        prompt = self._build_prompt(session, user_prompt, recent_history)
-        command = self._build_command(prompt)
+        use_native_resume = bool(session.codex_resume_ref)
+        prompt = user_prompt if use_native_resume else self._build_prompt(session, user_prompt, recent_history)
+        command = self._build_command(prompt, session.codex_resume_ref)
         env = os.environ.copy()
         proc = await asyncio.create_subprocess_exec(
             *command,
@@ -119,6 +123,7 @@ class CodexRunner:
         if not assistant_text.strip():
             assistant_text = self._extract_assistant_text(raw_collected, user_prompt=user_prompt)
         display_text = assistant_text
+        codex_resume_ref = self._extract_codex_resume_ref(raw_collected)
         success = return_code == 0 and not timed_out and not cancelled
         return RunResult(
             success=success,
@@ -128,6 +133,7 @@ class CodexRunner:
             output=output,
             assistant_text=assistant_text,
             display_text=display_text,
+            codex_resume_ref=codex_resume_ref,
             timed_out=timed_out,
             cancelled=cancelled,
         )
@@ -210,6 +216,15 @@ class CodexRunner:
                 continue
             break
         return normalized
+
+    @classmethod
+    def _extract_codex_resume_ref(cls, lines: list[str]) -> str | None:
+        for raw in lines:
+            normalized = cls._normalize_line(raw)
+            match = re.match(r"session id:\s*([0-9a-fA-F-]{36})\b", normalized, flags=re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
 
     @classmethod
     def _extract_assistant_text(cls, lines: list[str], user_prompt: str = "") -> str:

@@ -166,6 +166,14 @@ class Repository:
         )
         return rowcount > 0
 
+    async def set_codex_resume_ref(self, session_id: str, codex_resume_ref: str) -> bool:
+        now = self._now()
+        rowcount = await self._execute(
+            "UPDATE sessions SET codex_resume_ref = ?, updated_at = ? WHERE id = ?",
+            (codex_resume_ref, now, session_id),
+        )
+        return rowcount > 0
+
     async def add_history(self, session_id: str, role: str, content: str) -> None:
         now = self._now()
         await self._execute_many(

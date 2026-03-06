@@ -96,9 +96,34 @@ def test_extract_progress_text_keeps_human_status_only() -> None:
 def test_build_command_keeps_full_prompt_as_single_argument() -> None:
     runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
 
-    command = runner._build_command("line one\nline two")
+    command = runner._build_command("line one\nline two", None)
 
     assert command == ["codex", "exec", "--model", "gpt-5", "line one\nline two"]
+
+
+def test_build_command_uses_native_resume_when_ref_exists() -> None:
+    runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
+
+    command = runner._build_command("continue", "12345678-1234-1234-1234-1234567890ab")
+
+    assert command == [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-5",
+        "resume",
+        "12345678-1234-1234-1234-1234567890ab",
+        "continue",
+    ]
+
+
+def test_extract_codex_resume_ref_from_raw_output() -> None:
+    lines = [
+        "[stderr] OpenAI Codex v0.111.0 (research preview)\n",
+        "[stderr] session id: 12345678-1234-1234-1234-1234567890ab\n",
+    ]
+
+    assert CodexRunner._extract_codex_resume_ref(lines) == "12345678-1234-1234-1234-1234567890ab"
 
 
 @pytest.mark.asyncio
@@ -130,6 +155,38 @@ async def test_run_result_contains_command_and_raw_output(tmp_path: Path) -> Non
     assert result.command.startswith(str(script))
     assert "User task:" in result.command
     assert result.raw_output == "[stdout] raw stdout\n[stderr] raw stderr\n"
+    assert result.codex_resume_ref is None
+
+
+@pytest.mark.asyncio
+async def test_run_uses_resume_ref_without_rebuilding_prompt(tmp_path: Path) -> None:
+    script = tmp_path / "fake_codex.sh"
+    script.write_text("#!/usr/bin/env bash\nprintf 'session id: 87654321-4321-4321-4321-ba0987654321\\n' >&2\n", encoding="utf-8")
+    script.chmod(0o755)
+    runner = CodexRunner(str(script), timeout_sec=5)
+    session = SessionRecord(
+        id="12345678-1234-1234-1234-1234567890ab",
+        project_name="demo",
+        project_path=str(tmp_path),
+        alias=None,
+        created_at="2026-03-05T10:00:00+00:00",
+        updated_at="2026-03-05T10:01:00+00:00",
+        history_log_path=str(tmp_path / "history.log"),
+        codex_resume_ref="12345678-1234-1234-1234-1234567890ab",
+    )
+
+    result = await runner.run(
+        session=session,
+        user_prompt="Продолжай",
+        recent_history=[],
+        on_output=_noop_output,
+        on_progress=None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert " resume 12345678-1234-1234-1234-1234567890ab " in result.command
+    assert "Session context:" not in result.command
+    assert result.codex_resume_ref == "87654321-4321-4321-4321-ba0987654321"
 
 
 async def _noop_output(_: str) -> None:
