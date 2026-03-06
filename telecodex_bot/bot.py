@@ -143,10 +143,22 @@ class TelecodexApplication:
             if project_name not in self.settings.projects:
                 await message.answer("Неизвестный проект. Используйте кнопки или /projects.")
                 return
-            await self.repo.set_chat_state(chat_id=chat_id, project_name=project_name, codex_session_id=None)
+            latest_session = await self._latest_session_for_project(project_name)
+            await self.repo.set_chat_state(
+                chat_id=chat_id,
+                project_name=project_name,
+                codex_session_id=latest_session.codex_session_id if latest_session else None,
+            )
+            if latest_session is None:
+                await message.answer(
+                    f"Проект: {project_name}\nСессий проекта пока нет. Следующий запуск начнет новую сессию.",
+                    reply_markup=self._menu_keyboard(),
+                )
+                return
             await message.answer(
-                f"Проект: {project_name}\nСледующий запуск начнет новую сессию.",
+                f"Проект: {project_name}\nВыбрана последняя сессия проекта: <code>{html.escape(self._session_title(latest_session))}</code>",
                 reply_markup=self._menu_keyboard(),
+                parse_mode="HTML",
             )
 
         @self.router.message(Command("pwd"))
@@ -260,12 +272,28 @@ class TelecodexApplication:
             if project_name not in self.settings.projects:
                 await callback.answer("Проект не найден.", show_alert=True)
                 return
-            await self.repo.set_chat_state(callback.message.chat.id, project_name, None)
-            await self._edit_callback_message(
-                callback,
-                f"Проект переключен на {project_name}.\nСледующий запуск начнет новую сессию.",
-                self._menu_keyboard(),
+            latest_session = await self._latest_session_for_project(project_name)
+            await self.repo.set_chat_state(
+                callback.message.chat.id,
+                project_name,
+                latest_session.codex_session_id if latest_session else None,
             )
+            if latest_session is None:
+                await self._edit_callback_message(
+                    callback,
+                    f"Проект переключен на {project_name}.\nСессий проекта пока нет. Следующий запуск начнет новую сессию.",
+                    self._menu_keyboard(),
+                )
+            else:
+                await self._edit_callback_message(
+                    callback,
+                    (
+                        f"Проект переключен на {project_name}.\n"
+                        f"Выбрана последняя сессия проекта: <code>{html.escape(self._session_title(latest_session))}</code>"
+                    ),
+                    self._menu_keyboard(),
+                    parse_mode="HTML",
+                )
             await callback.answer("Проект обновлен.")
 
         @self.router.callback_query(F.data == "session:list")
@@ -515,6 +543,10 @@ class TelecodexApplication:
                 await asyncio.wait_for(cancel_event.wait(), timeout=4.0)
             except asyncio.TimeoutError:
                 continue
+
+    async def _latest_session_for_project(self, project_name: str) -> SessionRecord | None:
+        items = await self.repo.list_sessions(project_name, limit=1)
+        return items[0] if items else None
 
     async def _send_menu(self, message: Message) -> None:
         await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard(), parse_mode="HTML")

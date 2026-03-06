@@ -15,6 +15,7 @@ from telecodex_bot.bot import (
     _load_restart_request,
 )
 from telecodex_bot.config import Settings
+from telecodex_bot.db import init_db
 from telecodex_bot.repository import Repository, SessionRecord
 from telecodex_bot.runner import CodexRunner
 
@@ -215,6 +216,19 @@ def _build_app(
         deepgram=deepgram,
         restart_callback=restart_callback,
     )
+
+
+@pytest.mark.asyncio
+async def test_latest_session_for_project_returns_most_recent(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    first = await app.repo.save_session("11111111-1111-1111-1111-111111111111", "demo", "/tmp/demo")
+    latest = await app.repo.save_session("22222222-2222-2222-2222-222222222222", "demo", "/tmp/demo")
+
+    selected = await app._latest_session_for_project("demo")
+
+    assert selected is not None
+    assert selected.codex_session_id == latest.codex_session_id
 
 
 @pytest.mark.asyncio
