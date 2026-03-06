@@ -131,7 +131,8 @@ class TelegramStreamEditor:
         return RenderedTelegramText(html_text, parse_mode="HTML", fallback_text=plain_text)
 
     def _status_header_plain(self, title: str, elapsed: int) -> str:
-        return f"🔵 {title} {SPINNER_FRAMES[self._spinner_index]} ({elapsed}s)"
+        indicator = "🟢" if title == "Telecodex working" else "🔵"
+        return f"{indicator} {title} {SPINNER_FRAMES[self._spinner_index]} ({elapsed}s)"
 
     def _status_header_html(self, title: str, elapsed: int) -> str:
         return f"<b>{html.escape(self._status_header_plain(title, elapsed))}</b>"
