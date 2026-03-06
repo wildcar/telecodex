@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -6,7 +7,7 @@ import asyncio
 import pytest
 from aiogram import Bot, Dispatcher
 
-from telecodex_bot.bot import ActiveRun, TelecodexApplication
+from telecodex_bot.bot import ActiveRun, TelecodexApplication, _append_conversation_log
 from telecodex_bot.config import Settings
 from telecodex_bot.repository import Repository, SessionRecord
 from telecodex_bot.runner import CodexRunner
@@ -119,6 +120,43 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
         ("cancel", "Остановить задачу"),
         ("restart", "Перезапустить сервис"),
     ]
+
+
+def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    assert app._conversation_log_path(4242) == tmp_path / "history" / "coversation4242.log"
+
+
+def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:
+    path = tmp_path / "history" / "coversation77.log"
+
+    _append_conversation_log(
+        path,
+        timestamp=datetime(2026, 3, 6, 12, 34, 56, tzinfo=UTC),
+        user_prompt="почини\nлог",
+        command="codex exec 'сырой prompt'",
+        codex_output="[stdout] первая строка\n[stderr] вторая строка\n",
+    )
+
+    assert path.read_text(encoding="utf-8") == (
+        "[2026-03-06 12:34:56 UTC]\n"
+        "USER MESSAGE:\n"
+        "почини\n"
+        "лог\n"
+        "COMMAND:\n"
+        "codex exec 'сырой prompt'\n"
+        "CODEX OUTPUT:\n"
+        "[stdout] первая строка\n"
+        "[stderr] вторая строка\n"
+        "\n"
+    )
 
 
 def _build_restart_app(tmp_path: Path, restart_callback: AsyncMock | None = None) -> TelecodexApplication:

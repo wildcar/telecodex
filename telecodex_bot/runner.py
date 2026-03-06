@@ -15,6 +15,8 @@ from telecodex_bot.repository import HistoryItem, SessionRecord
 class RunResult:
     success: bool
     return_code: int
+    command: str
+    raw_output: str
     output: str
     assistant_text: str
     display_text: str
@@ -26,6 +28,9 @@ class CodexRunner:
     def __init__(self, codex_command: str, timeout_sec: int) -> None:
         self.command = shlex.split(codex_command)
         self.timeout_sec = timeout_sec
+
+    def _build_command(self, prompt: str) -> list[str]:
+        return [*self.command, prompt]
 
     @staticmethod
     def _build_prompt(
@@ -59,7 +64,7 @@ class CodexRunner:
         cancel_event: asyncio.Event,
     ) -> RunResult:
         prompt = self._build_prompt(session, user_prompt, recent_history)
-        command = [*self.command, prompt]
+        command = self._build_command(prompt)
         env = os.environ.copy()
         proc = await asyncio.create_subprocess_exec(
             *command,
@@ -108,6 +113,7 @@ class CodexRunner:
 
         if cancel_event.is_set():
             cancelled = True
+        raw_output = "".join(raw_collected)
         output = "".join(stream_collected)
         assistant_text = self._extract_assistant_text(stream_collected, user_prompt=user_prompt)
         if not assistant_text.strip():
@@ -117,6 +123,8 @@ class CodexRunner:
         return RunResult(
             success=success,
             return_code=return_code,
+            command=shlex.join(command),
+            raw_output=raw_output,
             output=output,
             assistant_text=assistant_text,
             display_text=display_text,

@@ -6,7 +6,7 @@ import os
 import signal
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -300,6 +300,7 @@ class TelecodexApplication:
             return
 
         session_item = await self._ensure_session(state)
+        telegram_user_id = message.from_user.id if message.from_user else chat_id
 
         stream = TelegramStreamEditor(
             bot=self.bot,
@@ -335,6 +336,13 @@ class TelecodexApplication:
             await typing_task
             self.active_runs.pop(chat_id, None)
 
+        _append_conversation_log(
+            self._conversation_log_path(telegram_user_id),
+            timestamp=datetime.now(UTC),
+            user_prompt=prompt,
+            command=result.command,
+            codex_output=result.raw_output,
+        )
         await self.repo.add_history(session_item.id, "user", prompt)
         assistant_text = (result.assistant_text or result.display_text or result.output).strip()
         await self.repo.add_history(session_item.id, "assistant", assistant_text[-10000:])
@@ -379,6 +387,9 @@ class TelecodexApplication:
 
     async def _on_output(self, session_item: SessionRecord, chunk: str) -> None:
         _append_log(Path(session_item.history_log_path), chunk)
+
+    def _conversation_log_path(self, telegram_user_id: int) -> Path:
+        return self.settings.history_dir / f"coversation{telegram_user_id}.log"
 
     async def _typing_loop(self, chat_id: int, cancel_event: asyncio.Event) -> None:
         while not cancel_event.is_set():
@@ -518,3 +529,24 @@ def _append_log(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fp:
         fp.write(text)
+
+
+def _append_conversation_log(
+    path: Path,
+    *,
+    timestamp: datetime,
+    user_prompt: str,
+    command: str,
+    codex_output: str,
+) -> None:
+    body = (
+        f"[{timestamp.astimezone(UTC).strftime('%Y-%m-%d %H:%M:%S %Z')}]\n"
+        "USER MESSAGE:\n"
+        f"{user_prompt.rstrip()}\n"
+        "COMMAND:\n"
+        f"{command.rstrip()}\n"
+        "CODEX OUTPUT:\n"
+        f"{codex_output.rstrip()}\n"
+        "\n"
+    )
+    _append_log(path, body)
