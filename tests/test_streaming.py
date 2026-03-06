@@ -17,21 +17,21 @@ def test_render_done_uses_clean_answer_only() -> None:
             self.text: str | None = None
             self.document_sent = False
             self.reply_markup = None
-            self.edits: list[str] = []
+            self.parse_mode = None
 
         async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
             self.text = text
             return SimpleNamespace(message_id=10)
 
-        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
             self.text = text
             self.reply_markup = reply_markup
-            self.edits.append(text)
+            self.parse_mode = parse_mode
 
         async def send_document(self, chat_id: int, document, caption: str) -> None:
             self.document_sent = True
 
-    async def run() -> str | None:
+    async def run() -> tuple[str | None, str | None]:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=1.0, tail_chars=50, send_log_threshold=1000)
         await editor.start("Running...")
@@ -39,16 +39,19 @@ def test_render_done_uses_clean_answer_only() -> None:
             True,
             "done",
             final_text="Чистый ответ",
-            full_text="технический лог",
+            full_text="Чистый ответ",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
         )
         assert bot.reply_markup is not None
-        return bot.text
+        return bot.text, bot.parse_mode
 
-    assert asyncio.run(run()) == "Чистый ответ"
+    text, parse_mode = asyncio.run(run())
+
+    assert text == "Чистый ответ"
+    assert parse_mode is None
 
 
-def test_progress_status_is_rendered_before_finish() -> None:
+def test_streaming_answer_is_rendered_before_finish() -> None:
     class DummyBot:
         def __init__(self) -> None:
             self.text: str | None = None
@@ -58,7 +61,7 @@ def test_progress_status_is_rendered_before_finish() -> None:
             self.text = text
             return SimpleNamespace(message_id=10)
 
-        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
             self.text = text
             self.edits.append(text)
 
@@ -68,18 +71,50 @@ def test_progress_status_is_rendered_before_finish() -> None:
     async def run() -> tuple[str | None, list[str]]:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=0.01, tail_chars=50, send_log_threshold=1000)
-        await editor.start("Running...")
+        await editor.start("Собеседник печатает...")
         await editor.publish_status("Смотрю FS.md")
         await asyncio.sleep(0.03)
-        await editor.finish(True, "done", final_text="Финальный ответ", full_text="короткий лог")
+        await editor.publish_answer("Первая часть ответа")
+        await asyncio.sleep(0.03)
+        await editor.finish(True, "done", final_text="Финальный ответ", full_text="Финальный ответ")
         return bot.text, bot.edits
 
     final_text, edits = asyncio.run(run())
 
     assert any("Смотрю FS.md" in item for item in edits)
-    assert all("Сейчас:" not in item for item in edits)
-    assert all("Недавно:" not in item for item in edits)
+    assert any("Первая часть ответа" in item for item in edits)
     assert final_text == "Финальный ответ"
+
+
+def test_finish_renders_code_blocks_as_html_when_short() -> None:
+    class DummyBot:
+        def __init__(self) -> None:
+            self.text: str | None = None
+            self.parse_mode: str | None = None
+
+        async def send_message(self, chat_id: int, text: str) -> SimpleNamespace:
+            self.text = text
+            return SimpleNamespace(message_id=10)
+
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
+            self.text = text
+            self.parse_mode = parse_mode
+
+        async def send_document(self, chat_id: int, document, caption: str) -> None:
+            return None
+
+    async def run() -> tuple[str | None, str | None]:
+        bot = DummyBot()
+        editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=1.0, tail_chars=50, send_log_threshold=1000)
+        await editor.start("Running...")
+        await editor.finish(True, "done", final_text="Ответ:\n```python\nprint('hi')\n```", full_text="Ответ:\n```python\nprint('hi')\n```")
+        return bot.text, bot.parse_mode
+
+    text, parse_mode = asyncio.run(run())
+
+    assert text is not None
+    assert "<pre>" in text
+    assert parse_mode == "HTML"
 
 
 def test_finish_truncates_too_long_final_text_and_sends_document() -> None:
@@ -92,7 +127,7 @@ def test_finish_truncates_too_long_final_text_and_sends_document() -> None:
             self.text = text
             return SimpleNamespace(message_id=10)
 
-        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None) -> None:
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
             self.text = text
 
         async def send_document(self, chat_id: int, document, caption: str) -> None:

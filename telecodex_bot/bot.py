@@ -348,7 +348,7 @@ class TelecodexApplication:
             tail_chars=self.settings.stream_tail_chars,
             send_log_threshold=self.settings.stream_send_log_threshold,
         )
-        await stream.start("Running...")
+        await stream.start("Собеседник печатает...")
         await stream.publish_status(f"Подготавливаю запуск в проекте {state.project_name}.")
 
         cancel_event = asyncio.Event()
@@ -366,6 +366,7 @@ class TelecodexApplication:
                 codex_session_id=current_session.codex_session_id if current_session else None,
                 user_prompt=prompt,
                 on_progress=stream.publish_status,
+                on_message=stream.publish_answer,
                 cancel_event=cancel_event,
             )
         finally:
@@ -411,8 +412,9 @@ class TelecodexApplication:
             result.success,
             summary,
             final_text=final_text,
-            full_text=result.output,
+            full_text=assistant_text,
             reply_markup=self._result_keyboard(),
+            attachment_text=result.raw_output if not result.success and not assistant_text else assistant_text,
         )
 
     async def _get_selected_session(self, state: ChatState) -> SessionRecord | None:

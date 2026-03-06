@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
+
+SESSION_ID_RE = re.compile(r"session id:\s*([0-9a-fA-F-]{36})\b", flags=re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -23,15 +29,205 @@ class RunResult:
     cancelled: bool = False
 
 
+@dataclass(slots=True)
+class CodexStreamEvent:
+    kind: str
+    event_type: str
+    text: str = ""
+    session_id: str | None = None
+    raw_line: str = ""
+    payload: dict[str, Any] | None = None
+
+
+class CodexJsonEventParser:
+    def parse_line(self, line: str) -> list[CodexStreamEvent]:
+        stripped = line.strip()
+        if not stripped:
+            return []
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            logger.warning("Invalid Codex JSON line", extra={"line": stripped[:500]})
+            return [CodexStreamEvent(kind="invalid_json", event_type="invalid_json", raw_line=line)]
+        if not isinstance(payload, dict):
+            logger.warning("Unexpected non-object Codex JSON event", extra={"line": stripped[:500]})
+            return [CodexStreamEvent(kind="unexpected_event", event_type="unexpected_event", raw_line=line)]
+        return self._parse_event(payload, line)
+
+    def _parse_event(self, payload: dict[str, Any], raw_line: str) -> list[CodexStreamEvent]:
+        event_type = str(payload.get("type", "unknown"))
+        events: list[CodexStreamEvent] = []
+        session_id = self._find_session_id(payload)
+        if session_id:
+            events.append(
+                CodexStreamEvent(
+                    kind="session",
+                    event_type=event_type,
+                    session_id=session_id,
+                    raw_line=raw_line,
+                    payload=payload,
+                )
+            )
+
+        if event_type in {"item.message.delta", "message.delta", "response.output_text.delta"}:
+            delta = self._coerce_text(payload.get("delta")) or self._coerce_text(payload.get("text"))
+            if delta:
+                events.append(
+                    CodexStreamEvent(
+                        kind="assistant_delta",
+                        event_type=event_type,
+                        text=delta,
+                        raw_line=raw_line,
+                        payload=payload,
+                    )
+                )
+            return events or [CodexStreamEvent(kind="unexpected_event", event_type=event_type, raw_line=raw_line, payload=payload)]
+
+        if event_type == "event_msg":
+            return events + self._parse_event_msg(payload, raw_line)
+
+        if event_type == "response_item":
+            return events + self._parse_response_item(payload, raw_line)
+
+        logger.debug("Ignoring unsupported Codex event type", extra={"event_type": event_type})
+        return events or [CodexStreamEvent(kind="unexpected_event", event_type=event_type, raw_line=raw_line, payload=payload)]
+
+    def _parse_event_msg(self, payload: dict[str, Any], raw_line: str) -> list[CodexStreamEvent]:
+        body = payload.get("payload")
+        if not isinstance(body, dict):
+            return []
+        body_type = str(body.get("type", "unknown"))
+        if body_type == "agent_message":
+            message = self._coerce_text(body.get("message"))
+            if message:
+                return [CodexStreamEvent(kind="assistant_snapshot", event_type=body_type, text=message, raw_line=raw_line, payload=body)]
+        if body_type == "task_complete":
+            message = self._coerce_text(body.get("last_agent_message"))
+            if message:
+                return [CodexStreamEvent(kind="assistant_snapshot", event_type=body_type, text=message, raw_line=raw_line, payload=body)]
+        return []
+
+    def _parse_response_item(self, payload: dict[str, Any], raw_line: str) -> list[CodexStreamEvent]:
+        body = payload.get("payload")
+        if not isinstance(body, dict):
+            return []
+        body_type = str(body.get("type", "unknown"))
+        if body_type == "message":
+            role = str(body.get("role", ""))
+            text = self._extract_text_from_content(body.get("content"))
+            phase = str(body.get("phase", ""))
+            if role == "assistant" and text:
+                if phase == "commentary":
+                    return [CodexStreamEvent(kind="progress", event_type=phase or body_type, text=text, raw_line=raw_line, payload=body)]
+                return [CodexStreamEvent(kind="assistant_snapshot", event_type=phase or body_type, text=text, raw_line=raw_line, payload=body)]
+            return []
+        if body_type == "reasoning":
+            summary = self._extract_text_from_content(body.get("summary"))
+            if summary:
+                return [CodexStreamEvent(kind="progress", event_type=body_type, text=summary, raw_line=raw_line, payload=body)]
+        return []
+
+    @classmethod
+    def _extract_text_from_content(cls, content: Any) -> str:
+        parts: list[str] = []
+        cls._collect_text(content, parts)
+        return "\n".join(part for part in parts if part).strip()
+
+    @classmethod
+    def _collect_text(cls, value: Any, parts: list[str]) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                parts.append(text)
+            return
+        if isinstance(value, list):
+            for item in value:
+                cls._collect_text(item, parts)
+            return
+        if not isinstance(value, dict):
+            return
+        item_type = value.get("type")
+        if item_type in {"output_text", "input_text", "summary_text"}:
+            text = cls._coerce_text(value.get("text"))
+            if text:
+                parts.append(text.strip())
+            return
+        for key in ("text", "message", "delta", "content", "summary"):
+            if key in value:
+                cls._collect_text(value.get(key), parts)
+
+    @staticmethod
+    def _coerce_text(value: Any) -> str:
+        return value if isinstance(value, str) else ""
+
+    @classmethod
+    def _find_session_id(cls, payload: Any) -> str | None:
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                if key in {"session_id", "sessionId"} and isinstance(value, str) and SESSION_ID_RE.search(f"session id: {value}"):
+                    return value
+                found = cls._find_session_id(value)
+                if found:
+                    return found
+        elif isinstance(payload, list):
+            for item in payload:
+                found = cls._find_session_id(item)
+                if found:
+                    return found
+        return None
+
+
+class CodexResponseAggregator:
+    def __init__(self) -> None:
+        self.assistant_text = ""
+        self.session_id: str | None = None
+
+    def apply(self, event: CodexStreamEvent) -> str | None:
+        if event.session_id:
+            self.session_id = event.session_id
+        if event.kind == "assistant_delta" and event.text:
+            self.assistant_text += event.text
+            return self.assistant_text
+        if event.kind == "assistant_snapshot" and event.text:
+            merged = self._merge_snapshot(self.assistant_text, event.text)
+            if merged != self.assistant_text:
+                self.assistant_text = merged
+                return self.assistant_text
+        return None
+
+    @staticmethod
+    def _merge_snapshot(current: str, snapshot: str) -> str:
+        if not current:
+            return snapshot
+        if snapshot.startswith(current):
+            return snapshot
+        if current.startswith(snapshot):
+            return current
+        max_overlap = min(len(current), len(snapshot))
+        for overlap in range(max_overlap, 0, -1):
+            if current.endswith(snapshot[:overlap]):
+                return current + snapshot[overlap:]
+        return snapshot
+
+
 class CodexRunner:
     def __init__(self, codex_command: str, timeout_sec: int) -> None:
         self.command = shlex.split(codex_command)
         self.timeout_sec = timeout_sec
+        self.parser = CodexJsonEventParser()
 
     def _build_command(self, prompt: str, codex_session_id: str | None) -> list[str]:
+        base = list(self.command)
         if codex_session_id:
-            return [*self.command, "resume", codex_session_id, prompt]
-        return [*self.command, prompt]
+            command = [*base, "resume"]
+            if "--json" not in command:
+                command.append("--json")
+            return [*command, codex_session_id, prompt]
+        if "--json" not in base:
+            base.append("--json")
+        return [*base, prompt]
 
     async def run(
         self,
@@ -40,6 +236,7 @@ class CodexRunner:
         codex_session_id: str | None,
         user_prompt: str,
         on_progress: Callable[[str], Awaitable[None]] | None,
+        on_message: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
         command = self._build_command(user_prompt, codex_session_id)
@@ -52,10 +249,12 @@ class CodexRunner:
             env=env,
         )
 
-        stream_collected: list[str] = []
         raw_collected: list[str] = []
+        aggregator = CodexResponseAggregator()
+        invalid_json_lines = 0
 
-        async def read_stream(stream: asyncio.StreamReader | None, source: str, prefix: str) -> None:
+        async def read_stdout(stream: asyncio.StreamReader | None) -> None:
+            nonlocal invalid_json_lines
             if stream is None:
                 return
             while True:
@@ -63,18 +262,36 @@ class CodexRunner:
                 if not chunk:
                     break
                 line = chunk.decode("utf-8", errors="replace")
-                raw_collected.append(f"[{source}] {line}")
-                if self._is_noise_line(line):
-                    continue
-                text = f"{prefix}{line}"
-                stream_collected.append(text)
-                if on_progress is not None:
-                    progress_text = self._extract_progress_text(text)
-                    if progress_text:
-                        await on_progress(progress_text)
+                raw_collected.append(f"[stdout] {line}")
+                for event in self.parser.parse_line(line):
+                    if event.kind == "invalid_json":
+                        invalid_json_lines += 1
+                        continue
+                    current_text = aggregator.apply(event)
+                    if event.kind == "progress" and on_progress is not None:
+                        progress_text = self._normalize_progress_text(event.text)
+                        if progress_text:
+                            await on_progress(progress_text)
+                    if current_text is not None and on_message is not None:
+                        await on_message(current_text)
 
-        stdout_task = asyncio.create_task(read_stream(proc.stdout, "stdout", ""))
-        stderr_task = asyncio.create_task(read_stream(proc.stderr, "stderr", "[stderr] "))
+        async def read_stderr(stream: asyncio.StreamReader | None) -> None:
+            if stream is None:
+                return
+            while True:
+                chunk = await stream.readline()
+                if not chunk:
+                    break
+                line = chunk.decode("utf-8", errors="replace")
+                raw_collected.append(f"[stderr] {line}")
+                session_id = self._extract_codex_session_id_from_text(line)
+                if session_id:
+                    aggregator.session_id = session_id
+                    continue
+                logger.debug("Codex stderr", extra={"line": line.rstrip()[:500]})
+
+        stdout_task = asyncio.create_task(read_stdout(proc.stdout))
+        stderr_task = asyncio.create_task(read_stderr(proc.stderr))
 
         timed_out = False
         cancelled = False
@@ -90,23 +307,21 @@ class CodexRunner:
 
         if cancel_event.is_set():
             cancelled = True
-        raw_output = "".join(raw_collected)
-        output = "".join(stream_collected)
-        assistant_text = self._extract_assistant_text(stream_collected, user_prompt=user_prompt)
-        if not assistant_text.strip():
-            assistant_text = self._extract_assistant_text(raw_collected, user_prompt=user_prompt)
+        if invalid_json_lines:
+            logger.warning("Codex JSON stream contained invalid lines", extra={"count": invalid_json_lines})
+
+        assistant_text = aggregator.assistant_text.strip()
         display_text = assistant_text
-        extracted_session_id = self._extract_codex_session_id(raw_collected)
         success = return_code == 0 and not timed_out and not cancelled
         return RunResult(
             success=success,
             return_code=return_code,
             command=shlex.join(command),
-            raw_output=raw_output,
-            output=output,
+            raw_output="".join(raw_collected),
+            output=assistant_text,
             assistant_text=assistant_text,
             display_text=display_text,
-            codex_session_id=extracted_session_id or codex_session_id,
+            codex_session_id=aggregator.session_id or codex_session_id,
             timed_out=timed_out,
             cancelled=cancelled,
         )
@@ -133,123 +348,17 @@ class CodexRunner:
             await proc.wait()
 
     @staticmethod
-    def _is_noise_line(line: str) -> bool:
-        stripped = CodexRunner._normalize_line(line).strip()
-        if not stripped:
-            return False
-        lower = stripped.lower()
-        starts_with_noise = (
-            "openai codex v",
-            "--------",
-            "workdir:",
-            "model:",
-            "provider:",
-            "approval:",
-            "sandbox:",
-            "reasoning effort:",
-            "reasoning summaries:",
-            "session id:",
-            "mcp startup:",
-            "tokens used",
-            "usage:",
-            "for more information",
-            "user",
-            "assistant:",
-            "codex",
-        )
-        if lower.startswith(starts_with_noise):
-            return True
-        if lower.startswith("user:"):
-            return True
-        if re.fullmatch(r"[0-9,]+", stripped):
-            return True
-        return False
-
-    @staticmethod
-    def _normalize_line(line: str) -> str:
-        normalized = line.strip()
-        while True:
-            if normalized.startswith("[stderr]"):
-                normalized = normalized[len("[stderr]") :].strip()
-                continue
-            if normalized.startswith("[stdout]"):
-                normalized = normalized[len("[stdout]") :].strip()
-                continue
-            if normalized.startswith("[stderr] "):
-                normalized = normalized[len("[stderr] ") :].strip()
-                continue
-            if normalized.startswith("[stdout] "):
-                normalized = normalized[len("[stdout] ") :].strip()
-                continue
-            break
+    def _normalize_progress_text(text: str) -> str:
+        normalized = " ".join(text.split()).strip()
+        if not normalized:
+            return ""
+        if len(normalized) > 200:
+            normalized = normalized[:197].rstrip() + "..."
         return normalized
 
-    @classmethod
-    def _extract_codex_session_id(cls, lines: list[str]) -> str | None:
-        for raw in lines:
-            normalized = cls._normalize_line(raw)
-            match = re.match(r"session id:\s*([0-9a-fA-F-]{36})\b", normalized, flags=re.IGNORECASE)
-            if match:
-                return match.group(1)
+    @staticmethod
+    def _extract_codex_session_id_from_text(line: str) -> str | None:
+        match = SESSION_ID_RE.search(line)
+        if match:
+            return match.group(1)
         return None
-
-    @classmethod
-    def _extract_assistant_text(cls, lines: list[str], user_prompt: str = "") -> str:
-        clean_lines: list[str] = []
-        previous = ""
-        prompt_variants = cls._prompt_variants(user_prompt)
-        for raw in lines:
-            line = cls._normalize_line(raw.rstrip("\n"))
-            if cls._is_noise_line(line):
-                continue
-            normalized = line.strip()
-            if not normalized:
-                if previous:
-                    clean_lines.append("")
-                    previous = ""
-                continue
-            if normalized in prompt_variants:
-                continue
-            if normalized == previous:
-                continue
-            clean_lines.append(normalized)
-            previous = normalized
-        return cls._deduplicate_blocks("\n".join(clean_lines).strip())
-
-    @classmethod
-    def _extract_progress_text(cls, line: str) -> str | None:
-        normalized = cls._normalize_line(line)
-        if cls._is_noise_line(normalized):
-            return None
-        stripped = normalized.strip()
-        if not stripped:
-            return None
-        if stripped.startswith("/") or stripped.startswith("$"):
-            return None
-        if re.search(r"\b(exec|sed|cat|rg|pytest|git|python|bash)\b", stripped):
-            return None
-        if re.fullmatch(r"[\w./-]+\.[A-Za-z0-9]+", stripped):
-            return None
-        if len(stripped) > 140:
-            return None
-        return stripped
-
-    @staticmethod
-    def _prompt_variants(user_prompt: str) -> set[str]:
-        variants = {user_prompt.strip()}
-        variants.update(line.strip() for line in user_prompt.splitlines())
-        return {item for item in variants if item}
-
-    @staticmethod
-    def _deduplicate_blocks(text: str) -> str:
-        if not text:
-            return text
-        lines = text.splitlines()
-        deduped: list[str] = []
-        previous = None
-        for line in lines:
-            if line == previous:
-                continue
-            deduped.append(line)
-            previous = line
-        return "\n".join(deduped).strip()
