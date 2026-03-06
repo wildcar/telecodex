@@ -23,7 +23,8 @@ async def run() -> None:
 
     repo = Repository(settings.db_path)
     runner = CodexRunner(settings.codex_command, settings.run_timeout_sec)
-    TelecodexApplication(bot, dispatcher, repo, runner, settings)
+    app = TelecodexApplication(bot, dispatcher, repo, runner, settings)
+    await app.configure_bot_commands()
 
     await dispatcher.start_polling(bot)
 

@@ -98,6 +98,29 @@ def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
     assert buttons == ["Новая сессия", "Сменить проект"]
 
 
+def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    commands = [(item.command, item.description) for item in app._bot_commands()]
+
+    assert commands == [
+        ("menu", "Показать меню"),
+        ("projects", "Список проектов"),
+        ("sessions", "Список сессий"),
+        ("session", "Выбрать или создать сессию"),
+        ("run", "Запустить задачу"),
+        ("status", "Текущий статус"),
+        ("cancel", "Остановить задачу"),
+        ("restart", "Перезапустить сервис"),
+    ]
+
+
 def _build_restart_app(tmp_path: Path, restart_callback: AsyncMock | None = None) -> TelecodexApplication:
     return TelecodexApplication(
         bot=Bot("123:ABC"),

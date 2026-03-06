@@ -12,7 +12,7 @@ from typing import Awaitable, Callable
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from telecodex_bot.config import Settings
@@ -51,6 +51,22 @@ class TelecodexApplication:
         self.router = Router()
         self._register_handlers()
         self.dispatcher.include_router(self.router)
+
+    async def configure_bot_commands(self) -> None:
+        await self.bot.set_my_commands(self._bot_commands())
+
+    @staticmethod
+    def _bot_commands() -> list[BotCommand]:
+        return [
+            BotCommand(command="menu", description="Показать меню"),
+            BotCommand(command="projects", description="Список проектов"),
+            BotCommand(command="sessions", description="Список сессий"),
+            BotCommand(command="session", description="Выбрать или создать сессию"),
+            BotCommand(command="run", description="Запустить задачу"),
+            BotCommand(command="status", description="Текущий статус"),
+            BotCommand(command="cancel", description="Остановить задачу"),
+            BotCommand(command="restart", description="Перезапустить сервис"),
+        ]
 
     def _register_handlers(self) -> None:
         @self.router.message(Command("start", "menu"))

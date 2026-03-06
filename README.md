@@ -52,6 +52,8 @@ requirements.txt
 ```
 
 ## 3. Команды бота
+После старта бот публикует в Telegram menu набор основных команд с короткими описаниями.
+
 - `/projects`
 - `/project <name>`
 - `/pwd`
