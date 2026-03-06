@@ -41,6 +41,7 @@ async def run() -> None:
             logger.warning("Deepgram disabled at startup: %s", exc)
 
     app = TelecodexApplication(bot, dispatcher, repo, runner, settings, deepgram=deepgram)
+    await app.load_projects()
     await app.configure_bot_commands()
     await app.notify_restart_success_if_needed()
 

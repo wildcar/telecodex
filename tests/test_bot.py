@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher
 from telecodex_bot.bot import (
     AccessMiddleware,
     ActiveRun,
+    PendingProjectDraft,
     TelecodexApplication,
     _append_conversation_log,
     _load_restart_request,
@@ -86,6 +87,20 @@ def test_menu_keyboard_hides_history_and_log_actions(tmp_path: Path) -> None:
 
     assert "История" not in buttons
     assert "Лог" not in buttons
+
+
+def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    buttons = [button.text for row in app._project_keyboard().inline_keyboard for button in row]
+
+    assert buttons == ["demo", "infra", "Новый проект", "Назад"]
 
 
 def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
@@ -186,6 +201,18 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
         ("cancel", "Остановить задачу"),
         ("restart", "Перезапустить сервис"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_load_projects_merges_db_projects_into_runtime_map(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    await app.repo.save_project("custom", str(tmp_path))
+
+    await app.load_projects()
+
+    assert "demo" in app.projects
+    assert app.projects["custom"] == tmp_path
 
 
 def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
@@ -399,3 +426,27 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
     assert message.answer.await_args_list[0].args == ("Распознаю голосовое сообщение ⠋",)
     assert message.answer.await_args_list[1].args == ("Расшифрованный текст",)
     app._execute_prompt.assert_awaited_once_with(message, "Расшифрованный текст")
+
+
+@pytest.mark.asyncio
+async def test_handle_project_creation_input_creates_project_and_selects_it(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    app.pending_project_drafts[1001] = PendingProjectDraft(name="custom")
+    message = SimpleNamespace(chat=SimpleNamespace(id=1001), text=str(tmp_path), answer=AsyncMock())
+
+    await app._handle_project_creation_input(message)
+
+    state = await app.repo.get_chat_state(1001)
+    saved = await app.repo.get_project("custom")
+
+    assert saved is not None
+    assert saved.project_path == str(tmp_path)
+    assert state is not None
+    assert state.project_name == "custom"
+    assert state.codex_session_id is None
+    assert app.projects["custom"] == tmp_path
+    message.answer.assert_awaited_once_with(
+        f"Проект создан: custom\nПуть: {tmp_path}\nСледующий запуск начнет новую сессию.",
+        reply_markup=app._menu_keyboard(),
+    )

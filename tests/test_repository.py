@@ -56,3 +56,17 @@ async def test_delete_session_clears_active_chat_state(tmp_path: Path) -> None:
     assert state.project_name == "demo"
     assert state.codex_session_id is None
     assert reloaded is None
+
+
+@pytest.mark.asyncio
+async def test_save_project_persists_and_lists(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    await init_db(str(db_path))
+    repo = Repository(db_path)
+
+    saved = await repo.save_project("infra", "/tmp/infra")
+    items = await repo.list_projects()
+
+    assert saved.name == "infra"
+    assert saved.project_path == "/tmp/infra"
+    assert [item.name for item in items] == ["infra"]

@@ -41,6 +41,11 @@ class RestartRequest:
     requested_at: str
 
 
+@dataclass(slots=True)
+class PendingProjectDraft:
+    name: str | None = None
+
+
 class AccessMiddleware(BaseMiddleware):
     def __init__(self, allowed_chat_ids: set[int]) -> None:
         self.allowed_chat_ids = allowed_chat_ids
@@ -98,6 +103,8 @@ class TelecodexApplication:
         self.deepgram = deepgram
         self.restart_callback = restart_callback or self._restart_process
         self.active_runs: dict[int, ActiveRun] = {}
+        self.projects: dict[str, Path] = dict(self.settings.projects)
+        self.pending_project_drafts: dict[int, PendingProjectDraft] = {}
         self.router = Router()
         access_middleware = AccessMiddleware(self.settings.admin_chat_ids)
         self.router.message.middleware(access_middleware)
@@ -107,6 +114,12 @@ class TelecodexApplication:
 
     async def configure_bot_commands(self) -> None:
         await self.bot.set_my_commands(self._bot_commands())
+
+    async def load_projects(self) -> None:
+        for name, path in self.settings.projects.items():
+            await self.repo.save_project(name, str(path))
+        stored = await self.repo.list_projects()
+        self.projects = {item.name: Path(item.project_path) for item in stored}
 
     @staticmethod
     def _bot_commands() -> list[BotCommand]:
@@ -126,21 +139,23 @@ class TelecodexApplication:
 
         @self.router.message(Command("projects"))
         async def projects(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             await message.answer(
                 "Доступные проекты:\n"
-                + "\n".join(f"• {name}: {path}" for name, path in self.settings.projects.items()),
+                + "\n".join(f"• {name}: {path}" for name, path in self.projects.items()),
                 reply_markup=self._project_keyboard(),
             )
 
         @self.router.message(Command("project"))
         async def set_project(message: Message) -> None:
             chat_id = message.chat.id
+            self.pending_project_drafts.pop(chat_id, None)
             args = _command_arg(message.text)
             if not args:
                 await message.answer("Выберите проект:", reply_markup=self._project_keyboard())
                 return
             project_name = args.strip()
-            if project_name not in self.settings.projects:
+            if project_name not in self.projects:
                 await message.answer("Неизвестный проект. Используйте кнопки или /projects.")
                 return
             latest_session = await self._latest_session_for_project(project_name)
@@ -167,11 +182,12 @@ class TelecodexApplication:
             if not state or not state.project_name:
                 await message.answer("Проект не выбран. Используйте /menu.")
                 return
-            project_path = self.settings.projects[state.project_name]
+            project_path = self.projects[state.project_name]
             await message.answer(f"{state.project_name}: {project_path}")
 
         @self.router.message(Command("sessions"))
         async def sessions(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             arg = _command_arg(message.text).strip()
             state = await self.repo.get_chat_state(message.chat.id)
             if not state or not state.project_name:
@@ -228,10 +244,12 @@ class TelecodexApplication:
 
         @self.router.message(Command("whereami", "status"))
         async def whereami(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard(), parse_mode="HTML")
 
         @self.router.message(Command("cancel"))
         async def cancel(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             run = self.active_runs.get(message.chat.id)
             if run is None:
                 await message.answer("Активной задачи нет.")
@@ -241,18 +259,24 @@ class TelecodexApplication:
 
         @self.router.message(Command("restart"))
         async def restart(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             await self._handle_restart(message)
 
         @self.router.message(F.voice)
         async def run_voice(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
             await self._handle_voice_message(message)
 
         @self.router.message(F.text & ~F.text.startswith("/"))
         async def run_text(message: Message) -> None:
+            if message.chat.id in self.pending_project_drafts:
+                await self._handle_project_creation_input(message)
+                return
             await self._execute_prompt(message, message.text or "")
 
         @self.router.callback_query(F.data == "menu:root")
         async def menu_root(callback: CallbackQuery) -> None:
+            self.pending_project_drafts.pop(callback.message.chat.id, None)
             await self._edit_callback_message(
                 callback,
                 await self._state_card(callback.message.chat.id),
@@ -263,13 +287,31 @@ class TelecodexApplication:
 
         @self.router.callback_query(F.data == "project:list")
         async def project_list(callback: CallbackQuery) -> None:
+            self.pending_project_drafts.pop(callback.message.chat.id, None)
             await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
             await callback.answer()
+
+        @self.router.callback_query(F.data == "project:new")
+        async def project_new(callback: CallbackQuery) -> None:
+            self.pending_project_drafts[callback.message.chat.id] = PendingProjectDraft()
+            await self._edit_callback_message(
+                callback,
+                "Введите название нового проекта:",
+                self._project_creation_keyboard(),
+            )
+            await callback.answer()
+
+        @self.router.callback_query(F.data == "project:new:cancel")
+        async def project_new_cancel(callback: CallbackQuery) -> None:
+            self.pending_project_drafts.pop(callback.message.chat.id, None)
+            await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
+            await callback.answer("Создание проекта отменено.")
 
         @self.router.callback_query(F.data.startswith("project:set:"))
         async def project_set(callback: CallbackQuery) -> None:
             project_name = callback.data.removeprefix("project:set:")
-            if project_name not in self.settings.projects:
+            self.pending_project_drafts.pop(callback.message.chat.id, None)
+            if project_name not in self.projects:
                 await callback.answer("Проект не найден.", show_alert=True)
                 return
             latest_session = await self._latest_session_for_project(project_name)
@@ -444,7 +486,7 @@ class TelecodexApplication:
 
         try:
             result = await self.runner.run(
-                project_path=str(self.settings.projects[state.project_name]),
+                project_path=str(self.projects[state.project_name]),
                 codex_session_id=current_session.codex_session_id if current_session else None,
                 user_prompt=prompt,
                 on_progress=stream.publish_status,
@@ -469,7 +511,7 @@ class TelecodexApplication:
             saved = await self.repo.save_session(
                 result.codex_session_id,
                 state.project_name,
-                str(self.settings.projects[state.project_name]),
+                str(self.projects[state.project_name]),
             )
             await self.repo.set_chat_state(chat_id, state.project_name, saved.codex_session_id)
             active_codex_session_id = saved.codex_session_id
@@ -585,7 +627,47 @@ class TelecodexApplication:
         return items[0] if items else None
 
     async def _send_menu(self, message: Message) -> None:
+        self.pending_project_drafts.pop(message.chat.id, None)
         await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard(), parse_mode="HTML")
+
+    async def _handle_project_creation_input(self, message: Message) -> None:
+        draft = self.pending_project_drafts.get(message.chat.id)
+        if draft is None:
+            await self._execute_prompt(message, message.text or "")
+            return
+        user_text = (message.text or "").strip()
+        if not user_text:
+            await message.answer("Введите непустое значение.", reply_markup=self._project_creation_keyboard())
+            return
+        if draft.name is None:
+            if user_text in self.projects:
+                await message.answer("Проект с таким названием уже существует. Введите другое название.", reply_markup=self._project_creation_keyboard())
+                return
+            draft.name = user_text
+            await message.answer(
+                f"Название проекта: {user_text}\nТеперь введите абсолютный путь к корневой папке:",
+                reply_markup=self._project_creation_keyboard(),
+            )
+            return
+
+        raw_path = Path(user_text).expanduser()
+        if not raw_path.is_absolute():
+            await message.answer("Путь должен быть абсолютным. Попробуйте еще раз.", reply_markup=self._project_creation_keyboard())
+            return
+        project_path = raw_path.resolve(strict=False)
+        if not project_path.exists() or not project_path.is_dir():
+            await message.answer("Корневая папка не найдена или это не директория. Попробуйте еще раз.", reply_markup=self._project_creation_keyboard())
+            return
+
+        project_name = draft.name
+        await self.repo.save_project(project_name, str(project_path))
+        self.projects[project_name] = project_path
+        self.pending_project_drafts.pop(message.chat.id, None)
+        await self.repo.set_chat_state(message.chat.id, project_name, None)
+        await message.answer(
+            f"Проект создан: {project_name}\nПуть: {project_path}\nСледующий запуск начнет новую сессию.",
+            reply_markup=self._menu_keyboard(),
+        )
 
     async def _handle_restart(self, message: Message) -> None:
         chat_id = message.chat.id
@@ -615,7 +697,7 @@ class TelecodexApplication:
         state = await self.repo.get_chat_state(chat_id)
         run = self.active_runs.get(chat_id)
         project = state.project_name if state and state.project_name else "не выбран"
-        project_path = str(self.settings.projects[state.project_name]) if state and state.project_name else "-"
+        project_path = str(self.projects[state.project_name]) if state and state.project_name else "-"
         session_text = "не выбрана"
         updated_at = state.updated_at if state else ""
         if state and state.codex_session_id:
@@ -660,9 +742,16 @@ class TelecodexApplication:
 
     def _project_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        for name in self.settings.projects:
+        for name in self.projects:
             builder.button(text=name, callback_data=f"project:set:{name}")
+        builder.button(text="Новый проект", callback_data="project:new")
         builder.button(text="Назад", callback_data="menu:root")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def _project_creation_keyboard(self) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Назад", callback_data="project:new:cancel")
         builder.adjust(1)
         return builder.as_markup()
 

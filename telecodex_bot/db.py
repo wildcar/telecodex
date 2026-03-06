@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS chat_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_project_updated ON sessions(project_name, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS projects (
+    name TEXT PRIMARY KEY,
+    project_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 

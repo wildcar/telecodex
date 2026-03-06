@@ -18,6 +18,14 @@ class SessionRecord:
 
 
 @dataclass(slots=True)
+class ProjectRecord:
+    name: str
+    project_path: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
 class ChatState:
     chat_id: int
     project_name: Optional[str]
@@ -82,6 +90,66 @@ class Repository:
             """,
             (chat_id, project_name, codex_session_id, now),
         )
+
+    async def save_project(self, name: str, project_path: str) -> ProjectRecord:
+        now = self._now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM projects WHERE name = ?",
+                (name,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE projects
+                    SET project_path = ?, updated_at = ?
+                    WHERE name = ?
+                    """,
+                    (project_path, now, name),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO projects(name, project_path, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (name, project_path, now, now),
+                )
+            conn.commit()
+        return await self.get_project(name)  # type: ignore[return-value]
+
+    async def get_project(self, name: str) -> Optional[ProjectRecord]:
+        row = await self._fetchone(
+            "SELECT name, project_path, created_at, updated_at FROM projects WHERE name = ?",
+            (name,),
+        )
+        if not row:
+            return None
+        return ProjectRecord(
+            name=row["name"],
+            project_path=row["project_path"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    async def list_projects(self) -> list[ProjectRecord]:
+        rows = await self._fetchall(
+            """
+            SELECT name, project_path, created_at, updated_at
+            FROM projects
+            ORDER BY name COLLATE NOCASE
+            """,
+            (),
+        )
+        return [
+            ProjectRecord(
+                name=row["name"],
+                project_path=row["project_path"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
 
     async def save_session(self, codex_session_id: str, project_name: str, project_path: str) -> SessionRecord:
         now = self._now()
