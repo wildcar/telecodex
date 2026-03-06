@@ -101,7 +101,8 @@ class TelegramStreamEditor:
         if self._answer_text:
             return RenderedTelegramText(self._stream_preview_text(self._answer_text))
         elapsed = max(0, int(asyncio.get_running_loop().time() - self._started_at))
-        lines = [f"{self._title} ({elapsed}s)"]
+        title = "Telecodex working..." if self._status_lines else self._title
+        lines = [f"{title} ({elapsed}s)"]
         if self._status_lines:
             lines.append("")
             lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])

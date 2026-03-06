@@ -81,6 +81,7 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
 
     final_text, edits = asyncio.run(run())
 
+    assert any("Telecodex working..." in item for item in edits)
     assert any("Смотрю FS.md" in item for item in edits)
     assert any("Первая часть ответа" in item for item in edits)
     assert final_text == "Финальный ответ"
