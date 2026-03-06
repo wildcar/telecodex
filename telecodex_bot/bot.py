@@ -664,7 +664,7 @@ class TelecodexApplication:
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
         updated = TelecodexApplication._format_session_stamp(session.updated_at)
-        return f"{session.project_name}|{session.codex_session_id[-13:]}|{updated}"
+        return f"{session.project_name}{session.codex_session_id[-13:]}|{updated}"
 
     @staticmethod
     def _sessions_title(project_name: str) -> str:
