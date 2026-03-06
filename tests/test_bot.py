@@ -48,7 +48,7 @@ def test_session_title_uses_project_and_last_used_stamp(tmp_path: Path) -> None:
         updated_at="2026-03-05T10:01:00+00:00",
     )
 
-    assert app._session_title(session) == "demo-1234567890ab|26-03-05|10:01"
+    assert app._session_title(session) == "demo|-1234567890ab|26-03-05|10:01"
 
 
 def test_session_line_marks_active_session(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_session_line_marks_active_session(tmp_path: Path) -> None:
 
     line = app._format_session_line(session, session.codex_session_id)
 
-    assert line == "→ <code>demo-1234567890ab|26-03-05|10:01</code>"
+    assert line == "→ <code>demo|-1234567890ab|26-03-05|10:01</code>"
 
 
 def test_menu_keyboard_hides_history_and_log_actions(tmp_path: Path) -> None:
