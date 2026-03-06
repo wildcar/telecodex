@@ -142,11 +142,7 @@ class TelecodexApplication:
         @self.router.message(Command("projects"))
         async def projects(message: Message) -> None:
             self.pending_project_drafts.pop(message.chat.id, None)
-            await message.answer(
-                "Доступные проекты:\n"
-                + "\n".join(f"• {name}: {path}" for name, path in self.projects.items()),
-                reply_markup=self._project_keyboard(),
-            )
+            await message.answer("Доступные проекты:", reply_markup=self._project_keyboard())
 
         @self.router.message(Command("project"))
         async def set_project(message: Message) -> None:
@@ -787,8 +783,8 @@ class TelecodexApplication:
 
     def _project_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        for name in self.projects:
-            builder.button(text=name, callback_data=f"project:set:{name}")
+        for name, path in self.projects.items():
+            builder.button(text=f"{name} ({path})", callback_data=f"project:set:{name}")
         builder.button(text="Новый проект", callback_data="project:new")
         builder.button(text="Назад", callback_data="menu:root")
         builder.adjust(1)

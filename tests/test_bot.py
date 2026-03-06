@@ -100,7 +100,7 @@ def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
 
     buttons = [button.text for row in app._project_keyboard().inline_keyboard for button in row]
 
-    assert buttons == ["demo", "infra", "Новый проект", "Назад"]
+    assert buttons == ["demo (/tmp/demo)", "infra (/tmp/infra)", "Новый проект", "Назад"]
 
 
 def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
