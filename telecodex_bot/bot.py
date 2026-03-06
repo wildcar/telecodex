@@ -118,8 +118,11 @@ class TelecodexApplication:
         await self.bot.set_my_commands(self._bot_commands())
 
     async def load_projects(self) -> None:
-        for name, path in self.settings.projects.items():
-            await self.repo.save_project(name, str(path))
+        bootstrapped = await self.repo.get_meta("projects_bootstrapped")
+        if bootstrapped != "1":
+            for name, path in self.settings.projects.items():
+                await self.repo.save_project(name, str(path))
+            await self.repo.set_meta("projects_bootstrapped", "1")
         stored = await self.repo.list_projects()
         self.projects = {item.name: Path(item.project_path) for item in stored}
 
@@ -286,8 +289,45 @@ class TelecodexApplication:
         @self.router.callback_query(F.data == "project:list")
         async def project_list(callback: CallbackQuery) -> None:
             self.pending_project_drafts.pop(callback.message.chat.id, None)
-            await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
+            await self._show_project_list(callback)
             await callback.answer()
+
+        @self.router.callback_query(F.data == "project:delete:list")
+        async def project_delete_list(callback: CallbackQuery) -> None:
+            self.pending_project_drafts.pop(callback.message.chat.id, None)
+            await self._show_project_delete_list(callback)
+            await callback.answer()
+
+        @self.router.callback_query(F.data.startswith("project:delete:confirm:"))
+        async def project_delete_confirm(callback: CallbackQuery) -> None:
+            project_name = callback.data.removeprefix("project:delete:confirm:")
+            project_path = self.projects.get(project_name)
+            if project_path is None:
+                await callback.answer("Проект не найден.", show_alert=True)
+                return
+            await self._edit_callback_message(
+                callback,
+                "Удалить проект?\n" f"<code>{html.escape(self._project_button_label(project_name, project_path))}</code>",
+                self._project_delete_confirm_keyboard(project_name),
+                parse_mode="HTML",
+            )
+            await callback.answer()
+
+        @self.router.callback_query(F.data.startswith("project:delete:yes:"))
+        async def project_delete_yes(callback: CallbackQuery) -> None:
+            project_name = callback.data.removeprefix("project:delete:yes:")
+            deleted = await self.repo.delete_project(project_name)
+            if not deleted:
+                await callback.answer("Проект не найден.", show_alert=True)
+                return
+            self.projects.pop(project_name, None)
+            await self._show_project_delete_list(callback)
+            await callback.answer("Проект удален.")
+
+        @self.router.callback_query(F.data == "project:delete:no")
+        async def project_delete_no(callback: CallbackQuery) -> None:
+            await self._show_project_delete_list(callback)
+            await callback.answer("Удаление отменено.")
 
         @self.router.callback_query(F.data == "project:new")
         async def project_new(callback: CallbackQuery) -> None:
@@ -784,10 +824,29 @@ class TelecodexApplication:
     def _project_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         for name, path in self.projects.items():
-            builder.button(text=f"{name} ({path})", callback_data=f"project:set:{name}")
+            builder.button(text=self._project_button_label(name, path), callback_data=f"project:set:{name}")
+        builder.button(text="Удалить проект", callback_data="project:delete:list")
         builder.button(text="Новый проект", callback_data="project:new")
         builder.button(text="Назад", callback_data="menu:root")
         builder.adjust(1)
+        return builder.as_markup()
+
+    def _project_delete_keyboard(self) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        for name, path in self.projects.items():
+            builder.button(
+                text=f"❌ {self._project_button_label(name, path)}",
+                callback_data=f"project:delete:confirm:{name}",
+            )
+        builder.button(text="Назад", callback_data="project:list")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def _project_delete_confirm_keyboard(self, project_name: str) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Да", callback_data=f"project:delete:yes:{project_name}")
+        builder.button(text="Нет", callback_data="project:delete:no")
+        builder.adjust(2)
         return builder.as_markup()
 
     def _project_creation_keyboard(self) -> InlineKeyboardMarkup:
@@ -795,6 +854,10 @@ class TelecodexApplication:
         builder.button(text="Назад", callback_data="project:new:cancel")
         builder.adjust(1)
         return builder.as_markup()
+
+    @staticmethod
+    def _project_button_label(project_name: str, project_path: Path) -> str:
+        return f"{project_name} ({project_path})"
 
     def _project_path_browser_keyboard(self, draft: PendingProjectDraft) -> InlineKeyboardMarkup:
         entries = self._project_browser_entries(draft.current_path)
@@ -846,6 +909,23 @@ class TelecodexApplication:
         self.projects[project_name] = project_path
         self.pending_project_drafts.pop(chat_id, None)
         await self.repo.set_chat_state(chat_id, project_name, None)
+
+    async def _show_project_list(self, callback: CallbackQuery) -> None:
+        await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
+
+    async def _show_project_delete_list(self, callback: CallbackQuery) -> None:
+        if not self.projects:
+            await self._edit_callback_message(
+                callback,
+                "Проектов пока нет.",
+                self._project_creation_keyboard(),
+            )
+            return
+        await self._edit_callback_message(
+            callback,
+            "Удаление проектов:",
+            self._project_delete_keyboard(),
+        )
 
     def _session_keyboard(self, sessions: list[SessionRecord]) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()

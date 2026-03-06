@@ -151,6 +151,41 @@ class Repository:
             for row in rows
         ]
 
+    async def get_meta(self, key: str) -> str | None:
+        row = await self._fetchone("SELECT value FROM app_meta WHERE key = ?", (key,))
+        if not row:
+            return None
+        return row["value"]
+
+    async def set_meta(self, key: str, value: str) -> None:
+        await self._execute(
+            """
+            INSERT INTO app_meta(key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+    async def delete_project(self, name: str) -> bool:
+        now = self._now()
+        with self._connect() as conn:
+            existing = conn.execute("SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone()
+            if not existing:
+                return False
+            conn.execute(
+                """
+                UPDATE chat_state
+                SET project_name = NULL, codex_session_id = NULL, updated_at = ?
+                WHERE project_name = ?
+                """,
+                (now, name),
+            )
+            conn.execute("DELETE FROM sessions WHERE project_name = ?", (name,))
+            conn.execute("DELETE FROM projects WHERE name = ?", (name,))
+            conn.commit()
+        return True
+
     async def save_session(self, codex_session_id: str, project_name: str, project_path: str) -> SessionRecord:
         now = self._now()
         with self._connect() as conn:
