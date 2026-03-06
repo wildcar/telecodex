@@ -138,10 +138,10 @@ class TelegramStreamEditor:
         return f"<b>{html.escape(self._status_header_plain(title, elapsed))}</b>"
 
     def _stream_preview_text(self, text: str) -> str:
-        body = text.strip() or "Ответ пуст."
+        body = text.strip() or "Empty response."
         if len(body) <= TELEGRAM_TEXT_LIMIT:
             return body
-        suffix = "\n\n[Показан хвост потокового ответа]"
+        suffix = "\n\n[Showing streamed response tail]"
         budget = max(0, TELEGRAM_TEXT_LIMIT - len(suffix))
         preview = self.tail(body, min(self.tail_chars, budget))
         if len(preview) > budget:
@@ -165,13 +165,13 @@ class TelegramStreamEditor:
 
     @classmethod
     def _render_final_text(cls, text: str) -> tuple[RenderedTelegramText, bool]:
-        body = text.strip() or "Ответ пуст."
+        body = text.strip() or "Empty response."
         if len(body) <= TELEGRAM_TEXT_LIMIT:
             html_rendered = cls._render_code_blocks_html(body)
             if html_rendered is not None and len(html_rendered.text) <= TELEGRAM_TEXT_LIMIT:
                 return html_rendered, False
             return RenderedTelegramText(body), False
-        suffix = "\n\n[Полный ответ отправлен файлом]"
+        suffix = "\n\n[Full response sent as file]"
         preview_limit = TELEGRAM_TEXT_LIMIT - len(suffix)
         truncated = body[:preview_limit].rstrip() + suffix
         return RenderedTelegramText(truncated), True
@@ -260,6 +260,6 @@ class TelegramStreamEditor:
         if len(document_text) >= self.send_log_threshold or was_truncated:
             data = document_text.encode("utf-8", errors="replace")
             doc = BufferedInputFile(data, filename="codex_output.md")
-            caption = "Полный ответ" if success else f"Подробности ({summary})"
+            caption = "Full response" if success else f"Details ({summary})"
             await self.bot.send_document(self.chat_id, document=doc, caption=caption)
         return body

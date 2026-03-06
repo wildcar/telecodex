@@ -1,28 +1,28 @@
-Функциональная спецификация проекта
+Functional specification
 
-Проект: Telegram-бот на Python для управления Codex CLI через subprocess на Ubuntu-сервере. Бот поддерживает выбор проекта и Codex-сессии, показывает сценарный UI в Telegram и работает как systemd-сервис.
+Project: a Python Telegram bot for driving Codex CLI through subprocesses on an Ubuntu server. The bot supports project selection, Codex session selection, streaming replies in Telegram, and systemd service operation.
 
-Цели
-1) Принимать команды и обычные сообщения из Telegram.
-2) Для каждого чата хранить выбранный проект и текущую Codex-сессию без ручной работы с UUID в обычном UX.
-3) Запускать Codex CLI в нужном `cwd`, собирать поток ответа и показывать его в Telegram.
-4) Держать UX вокруг одного статусного сообщения, inline-кнопок и компактных карточек состояния.
-5) Работать как сервис с конфигом через env/.env.
+Goals
+1) Accept commands and regular messages from Telegram.
+2) Store the selected project and current Codex session per chat without exposing raw UUID workflows in normal UX.
+3) Run Codex CLI in the correct `cwd`, collect the reply stream, and present it in Telegram.
+4) Keep the UX centered around a single status message, inline buttons, and compact state cards.
+5) Run as a service with configuration from env/.env.
 
-Принятые решения
+Accepted decisions
 - Telegram framework: aiogram v3.
-- Хранилище: SQLite.
-- Список проектов хранится только в SQLite и управляется через Telegram UI.
-- Текущий выбор проекта и сессии хранится по `chat_id`.
-- Команда запуска Codex задается через `CODEX_COMMAND`; по умолчанию бот не навязывает sandbox/approval-ограничения Codex.
-- В git не должны попадать runtime-артефакты из `data/`, `history/`, `logs/`.
+- Storage: SQLite.
+- The project list lives only in SQLite and is managed through the Telegram UI.
+- The selected project and selected session are stored by `chat_id`.
+- The Codex launch command is defined by `CODEX_COMMAND`; by default the bot does not enforce extra Codex sandbox or approval restrictions.
+- Runtime artifacts from `data/`, `history/`, and `logs/` must not be committed.
 
-Ограничения
-- Без внешних БД на старте, только локальный SQLite.
-- Одновременно в одном чате допускается только один активный запуск Codex.
-- Пользователь не может запускать произвольные shell-команды через бота.
+Constraints
+- No external database at startup, SQLite only.
+- Only one active Codex run is allowed per chat at a time.
+- The user cannot execute arbitrary shell commands through the bot.
 
-Модель данных
+Data model
 - Chat state:
   - `chat_id`
   - `project_name`
@@ -37,105 +37,105 @@
 
 Telegram UX
 
-A) Главное меню
-- `/start` и `/menu` показывают карточку состояния текущего чата.
-- При старте приложения бот публикует Telegram command menu через `setMyCommands`.
-- Карточка состояния показывает: проект, project path, выбранную сессию, статус (`idle`/`running`), последнюю активность.
-- Inline-кнопки: `Проект`, `Сессия`, `Новая сессия`, `Стоп`, `Помощь`.
-- Экран `Помощь` содержит только краткую последовательность шагов использования без блока fallback-команд.
+A) Main menu
+- `/start` and `/menu` show the current chat state card.
+- At startup the bot publishes the Telegram command menu through `setMyCommands`.
+- The state card shows: project, project path, selected session, status (`idle`/`running`), and last activity.
+- Inline buttons: `Project`, `Session`, `New session`, `Stop`, `Help`.
+- The `Help` screen contains only the short usage steps and does not include a fallback command block.
 
-B) Управление проектами
-- `/projects` показывает краткий заголовок без текстового перечисления проектов; название и путь проекта отображаются прямо на inline-кнопках.
-- `/project <name>` выбирает проект для текущего чата.
-- Inline-кнопка `Проект` открывает список проектов.
-- В меню проектов есть кнопка `Новый проект`.
-- В меню проектов есть кнопка `Удалить проект`, которая открывает отдельный режим удаления проектов.
-- В режиме удаления проектов показываются кнопки проектов с красным крестиком, внизу есть кнопка `Назад`, а удаление подтверждается отдельным экраном с кнопками `Да` и `Нет`.
-- При подтверждении проект удаляется из БД бота вместе с сохраненными сессиями этого проекта, а у чатов с выбранным удаленным проектом очищаются `project_name` и `codex_session_id`.
-- После нажатия `Новый проект` бот запрашивает название проекта, а затем предлагает выбрать корневую папку через inline-навигацию по директориям, начиная с `/`.
-- В режиме выбора пути бот показывает список вложенных папок, раскладывает кнопки в несколько колонок с учетом длины названий и позволяет заходить глубже или подниматься на уровень вверх.
-- Подтверждение текущей папки выполнено одной кнопкой формата `✅ <текущий путь>` без отдельного слова `Выбрать`.
-- После успешного ввода проект сохраняется в БД бота, появляется в общем списке проектов и сразу выбирается для текущего чата.
-- При смене проекта бот автоматически выбирает последнюю использованную сессию этого проекта; если сессий еще нет, следующий запуск начинается в новой сессии.
+B) Project management
+- `/projects` shows a short header without a textual project list; the project name and path are shown directly on inline buttons.
+- `/project <name>` selects a project for the current chat.
+- The `Project` inline button opens the project list.
+- The project menu includes a `New project` button.
+- The project menu includes a `Delete project` button that opens a dedicated project deletion mode.
+- In project deletion mode the bot shows project buttons prefixed with a red cross, a `Back` button at the bottom, and a separate `Yes` / `No` confirmation screen.
+- When confirmed, the project is removed from the bot database together with the saved sessions for that project, and chats that had this project selected have both `project_name` and `codex_session_id` cleared.
+- After `New project`, the bot asks for the project name and then lets the user choose the root folder via inline directory navigation starting from `/`.
+- In path selection mode the bot shows child folders, lays out buttons in multiple columns based on folder name length, and allows going deeper or moving one level up.
+- The current folder is confirmed with a single button in the format `✅ <current path>` with no extra `Select` word.
+- After successful input, the project is saved in the database, appears in the shared project list, and is selected immediately for the current chat.
+- When switching projects, the bot automatically selects the most recently used session for that project; if the project has no sessions yet, the next prompt starts a new session.
 
-C) Управление сессиями
-- `/sessions` показывает сохраненные Codex-сессии текущего проекта, а также принимает `new` или `codex_session_id` как текстовый fallback для начала новой сессии или выбора существующей.
-- `/session_name <alias>` назначает alias текущей сессии.
-- `/whereami` показывает ту же карточку состояния, что и `/menu`.
-- Inline-кнопка `Сессия` открывает список последних Codex-сессий.
-- Inline-кнопка `Новая сессия` только сбрасывает текущую привязку, без создания локальной записи заранее.
-- В экране выбора сессий есть кнопка `Удалить сессию`, которая открывает отдельный режим удаления.
-- В режиме удаления показывается список сессий текущего проекта; каждая кнопка начинается с красного крестика, внизу есть кнопка `Назад`.
-- Нажатие на сессию в режиме удаления открывает подтверждение с кнопками `Да` и `Нет`.
-- `Да` удаляет сессию из БД бота и возвращает пользователя к списку удаляемых сессий.
-- `Нет` ничего не удаляет и возвращает пользователя к списку удаляемых сессий.
-- Если удалена активная сессия, бот считает, что теперь выбрана новая сессия, то есть `codex_session_id` в `chat_state` очищается.
-- Везде, где бот показывает идентификатор сессии пользователю, используется формат `projecttail|YY-MM-DD|HH:MM`, где `tail` — финальный сегмент `codex_session_id` вместе с ведущим `-`, без разделителя `|` между именем проекта и `tail`, а дата и время берутся из `updated_at` последнего использования сессии.
-- После сброса текущей сессии бот подтверждает действие текстом `Введенное сообщение/запрос начнет новую сессию Codex`.
+C) Session management
+- `/sessions` shows the saved Codex sessions for the current project and also accepts `new` or `codex_session_id` as a text fallback to start a new session or choose an existing one.
+- `/session_name <alias>` assigns an alias to the current session.
+- `/whereami` shows the same state card as `/menu`.
+- The `Session` inline button opens the recent Codex sessions for the current project.
+- The `New session` inline button only clears the current binding; it does not create a local record upfront.
+- The session picker includes a `Delete session` button that opens a dedicated session deletion mode.
+- In session deletion mode the bot shows the current project sessions, each button prefixed with a red cross, and a `Back` button at the bottom.
+- Clicking a session in deletion mode opens a `Yes` / `No` confirmation screen.
+- `Yes` deletes the session from the bot database and returns the user to the deletion list.
+- `No` does not delete anything and also returns to the deletion list.
+- If the active session is deleted, the bot treats the chat as having a new session selected, meaning `codex_session_id` in `chat_state` is cleared.
+- Everywhere the bot shows a session identifier to the user, it uses the format `projecttail|YY-MM-DD|HH:MM`, where `tail` is the final segment of `codex_session_id` including the leading `-`, with no `|` between the project name and `tail`, and the date/time comes from `updated_at`.
+- After clearing the current session, the bot confirms with `The next message/request will start a new Codex session`.
 
-D) Запуск задач
-- Любой текст без команды считается задачей для Codex.
-- Голосовое сообщение `voice` распознается через Deepgram и после успешной расшифровки запускается как обычная текстовая задача.
-- `/status` показывает компактный статус активной задачи.
-- `/cancel` останавливает текущий subprocess.
+D) Task execution
+- Any non-command text is treated as a Codex task.
+- A `voice` message is transcribed through Deepgram and, after successful transcription, executed as a normal text task.
+- `/status` shows a compact status of the active task.
+- `/cancel` stops the current subprocess.
 
-E) Вывод в Telegram
-- При старте запроса бот отправляет одно сообщение `Telecodex thinking`.
-- Верхняя строка статуса рендерится жирным шрифтом; вместо произвольного цвета текста используются цветные эмодзи-индикаторы, так как Telegram Bot API не поддерживает свободный выбор цвета текста.
-- Для `Telecodex thinking` используется синий индикатор, для `Telecodex working` — зеленый.
-- В статусной строке используется spinner-анимация из braille-символов, аналогичная индикатору распознавания голосового сообщения, без суффикса `...`.
-- При получении голосового сообщения бот показывает краткий статус STT, затем удаляет его и выводит чистый транскрипт отдельным сообщением.
-- Пока идет выполнение, бот периодически отправляет `typing`.
-- Как только появляется реальный содержательный прогресс, верхняя строка статусного блока меняется на `Telecodex working (Ns)`.
-- Отсчет секунд идет непрерывно с момента старта запроса.
-- Отдельный локальный статус подготовки проекта не показывается.
-- Промежуточные статусы формируются только из human-readable комментариев Codex; shell-команды, сырые stdout/stderr, file dumps и технический шум в чат не выводятся.
-- Во время промежуточного стриминга верхняя строка `Telecodex working (Ns)` сохраняется до финального завершения запроса и сразу под ней без пустой строки выводятся текущие статусы или preview ответа.
-- Финальный ответ целиком заменяет стартовое статусное сообщение.
-- Если ответ длинный или содержит большие блоки кода, в сообщении остается безопасный preview, а полный ответ отправляется отдельным файлом.
-- Под финальным ответом добавляются кнопки `Новая сессия` и `Сменить проект`.
+E) Telegram output
+- At request start the bot sends a single `Telecodex thinking` message.
+- The status header is rendered in bold. Telegram Bot API does not support arbitrary text color, so colored emoji indicators are used instead.
+- `Telecodex thinking` uses a blue indicator, and `Telecodex working` uses a green one.
+- The status header uses the same braille spinner animation pattern as the voice transcription indicator and does not use a `...` suffix.
+- When a voice message is received, the bot shows a short STT status, then deletes it and posts the clean transcript as a separate message.
+- While the task is running, the bot periodically sends `typing`.
+- As soon as real progress appears, the top line changes to `Telecodex working (Ns)`.
+- The seconds counter runs continuously from the start of the request.
+- No separate local “preparing project” status is shown.
+- Intermediate statuses are built only from human-readable Codex commentary; shell commands, raw stdout/stderr, file dumps, and technical noise are not shown in chat.
+- During streaming, the `Telecodex working (Ns)` header stays visible until the request finishes, and the current statuses or response preview appear immediately below it without a blank line.
+- The final reply fully replaces the initial status message.
+- If the reply is long or contains large code blocks, the message keeps a safe preview and the full reply is sent as a separate file.
+- The final reply includes `New session` and `Switch project` buttons underneath.
 
-F) Доступ и админские действия
-- Всем функционалом бота могут пользоваться только chat id из `TELECODEX_ADMIN_CHAT_IDS`.
-- Для любого запроса от chat id вне whitelist бот отвечает `Нет доступа`.
-- `/restart` доступна только admin chat id.
-- Если есть хотя бы один активный запуск Codex, `/restart` отказывается останавливать сервис.
-- При вызове `/restart` бот отвечает коротким подтверждением без дополнительной фразы про возврат после рестарта.
-- При успешном `/restart` бот сохраняет persisted marker о запрошенном рестарте, завершает polling, а после следующего успешного старта отправляет в тот же чат сообщение, что сервис был перезапущен успешно, и очищает marker.
+F) Access and admin actions
+- Only chat IDs listed in `TELECODEX_ADMIN_CHAT_IDS` may use the bot.
+- Any request from a chat ID outside that whitelist receives `Access denied`.
+- `/restart` is available only to admin chat IDs.
+- If any Codex run is active, `/restart` refuses to stop the service.
+- On `/restart` the bot answers with a short confirmation only, without any extra “coming back after restart” phrase.
+- On successful `/restart`, the bot stores a persisted restart marker, stops polling, and after the next successful startup sends a message to the same chat that the service restarted successfully, then clears the marker.
 
-Логи и история
-- Пользовательский текстовый лог истории хранится только в plaintext-файле `conversation<TelegramUserID>.log`.
-- Для каждого запуска в conversation-log сохраняются:
+Logs and history
+- User-facing conversation history is stored only in a plaintext file named `conversation<TelegramUserID>.log`.
+- Each run appends the following to the conversation log:
   - timestamp
-  - исходное сообщение пользователя
-  - полная shell-команда запуска Codex
-  - полный сырой ответ Codex без форматирования и фильтрации
-- Локальная история сообщений в БД и отдельные session history-логи не используются.
+  - original user message
+  - full Codex shell command
+  - full raw Codex output without formatting or filtering
+- Local message history in the database and separate session history logs are not used.
 
-Интеграция с Codex CLI
-- Бот запускает только `CODEX_COMMAND` с добавлением prompt.
-- Перед запуском выставляется `cwd = project_path`.
-- Основной режим автоматизации: `codex exec --json <prompt>`.
-- Для продолжения диалога используется только `codex exec resume --json <codex_session_id> <prompt>`.
-- Основной источник потокового текста ответа: `item.message.delta`.
-- Поддерживаются совместимые fallback-события, включая `response_item`, `event_msg` и `item.completed` с финальным текстом.
-- `thread.started` и иные события с session/thread id используются для извлечения `codex_session_id`.
-- Невалидные JSON-строки и неожиданные event types не должны ронять выполнение.
-- Источник истины для идентификатора сессии — только session/thread id, возвращаемый самим Codex CLI.
+Codex CLI integration
+- The bot runs only `CODEX_COMMAND` with the prompt appended.
+- Before launch it sets `cwd = project_path`.
+- Main automation mode: `codex exec --json <prompt>`.
+- To continue a conversation it uses only `codex exec resume --json <codex_session_id> <prompt>`.
+- The primary source of streamed reply text is `item.message.delta`.
+- Compatible fallback events are also supported, including `response_item`, `event_msg`, and `item.completed` with final text.
+- `thread.started` and other events containing a session/thread id are used to extract `codex_session_id`.
+- Invalid JSON lines and unexpected event types must not crash execution.
+- The source of truth for the session identifier is only the session/thread id returned by Codex CLI itself.
 
-Интеграция с Deepgram
-- Если задан `DEEPGRAM_API_KEY`, бот принимает Telegram voice-сообщения.
-- Голосовой файл скачивается из Telegram как `audio/ogg` и отправляется в Deepgram для распознавания.
-- При временной недоступности Deepgram бот возвращает понятную ошибку пользователю.
-- При отсутствии `DEEPGRAM_API_KEY` голосовые сообщения отклоняются с явным сообщением, что STT не настроен.
-- Если клиент Deepgram не может инициализироваться при старте процесса, бот не должен падать целиком: voice-функция отключается, а сервис продолжает работать с предупреждением в логе.
+Deepgram integration
+- If `DEEPGRAM_API_KEY` is set, the bot accepts Telegram voice messages.
+- The voice file is downloaded from Telegram as `audio/ogg` and sent to Deepgram for transcription.
+- If Deepgram is temporarily unavailable, the bot returns a clear user-facing error.
+- If `DEEPGRAM_API_KEY` is missing, voice messages are rejected with an explicit message that STT is not configured.
+- If the Deepgram client cannot initialize at process startup, the bot must not crash as a whole: voice support is disabled and the service continues running with a warning in the log.
 
-Технические требования
-- Архитектура асинхронная.
-- Subprocess запускаются через `asyncio.create_subprocess_exec`.
-- Логирование реализовано через `logging` и `RotatingFileHandler`.
-- Conversation-log пишется как обычный текстовый файл с сохранением исходных переносов строк.
-- Конфиг загружается через `.env` и `pydantic-settings`.
-- Версия приложения хранится в `telecodex_bot/__init__.py`; git-релизы помечаются тегами вида `v<version>`.
-- `README.md` должен описывать актуальное поведение бота и эксплуатацию в кратком практическом виде, без лишних внутренних технических деталей.
-- Тесты должны запускаться локально командой `cd /home/codex/telecodex_bot && ./.venv/bin/pytest -q`.
+Technical requirements
+- Architecture is asynchronous.
+- Subprocesses are started via `asyncio.create_subprocess_exec`.
+- Logging is implemented with `logging` and `RotatingFileHandler`.
+- The conversation log is written as a plain text file preserving original line breaks.
+- Configuration is loaded via `.env` and `pydantic-settings`.
+- The application version is stored in `telecodex_bot/__init__.py`; git releases are marked with tags of the form `v<version>`.
+- `README.md` should describe the current bot behavior and operations in a short practical form without unnecessary internal implementation detail.
+- Tests must run locally with `cd /home/codex/telecodex_bot && ./.venv/bin/pytest -q`.

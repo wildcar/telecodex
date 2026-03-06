@@ -38,8 +38,8 @@ def test_render_done_uses_clean_answer_only() -> None:
         await editor.finish(
             True,
             "done",
-            final_text="Чистый ответ",
-            full_text="Чистый ответ",
+            final_text="Clean reply",
+            full_text="Clean reply",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
         )
         assert bot.reply_markup is not None
@@ -47,7 +47,7 @@ def test_render_done_uses_clean_answer_only() -> None:
 
     text, parse_mode = asyncio.run(run())
 
-    assert text == "Чистый ответ"
+    assert text == "Clean reply"
     assert parse_mode is None
 
 
@@ -72,22 +72,22 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=0.01, tail_chars=50, send_log_threshold=1000)
         await editor.start("Telecodex thinking")
-        await editor.publish_status("Смотрю FS.md")
+        await editor.publish_status("Reviewing FS.md")
         await asyncio.sleep(0.03)
-        await editor.publish_answer("Первая часть ответа")
+        await editor.publish_answer("First reply chunk")
         await asyncio.sleep(0.03)
-        await editor.finish(True, "done", final_text="Финальный ответ", full_text="Финальный ответ")
+        await editor.finish(True, "done", final_text="Final reply", full_text="Final reply")
         return bot.text, bot.edits
 
     final_text, edits = asyncio.run(run())
 
     assert any("Telecodex working" in item for item in edits)
-    assert any("Смотрю FS.md" in item for item in edits)
-    assert any("Первая часть ответа" in item for item in edits)
-    assert any("Telecodex working" in item and "Первая часть ответа" in item for item in edits)
+    assert any("Reviewing FS.md" in item for item in edits)
+    assert any("First reply chunk" in item for item in edits)
+    assert any("Telecodex working" in item and "First reply chunk" in item for item in edits)
     assert any("<b>🟢 " in item for item in edits)
     assert not any("Telecodex working" in item and "\n\n" in item for item in edits)
-    assert final_text == "Финальный ответ"
+    assert final_text == "Final reply"
 
 
 def test_finish_renders_code_blocks_as_html_when_short() -> None:
@@ -111,7 +111,7 @@ def test_finish_renders_code_blocks_as_html_when_short() -> None:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=1.0, tail_chars=50, send_log_threshold=1000)
         await editor.start("Running...")
-        await editor.finish(True, "done", final_text="Ответ:\n```python\nprint('hi')\n```", full_text="Ответ:\n```python\nprint('hi')\n```")
+        await editor.finish(True, "done", final_text="Reply:\n```python\nprint('hi')\n```", full_text="Reply:\n```python\nprint('hi')\n```")
         return bot.text, bot.parse_mode
 
     text, parse_mode = asyncio.run(run())
@@ -148,5 +148,5 @@ def test_finish_truncates_too_long_final_text_and_sends_document() -> None:
 
     assert final_text is not None
     assert len(final_text) <= 4096
-    assert final_text.endswith("[Полный ответ отправлен файлом]")
+    assert final_text.endswith("[Full response sent as file]")
     assert document_sent is True

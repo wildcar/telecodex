@@ -84,8 +84,8 @@ def test_menu_keyboard_hides_history_and_log_actions(tmp_path: Path) -> None:
 
     buttons = [button.text for row in app._menu_keyboard().inline_keyboard for button in row]
 
-    assert "История" not in buttons
-    assert "Лог" not in buttons
+    assert "History" not in buttons
+    assert "Log" not in buttons
 
 
 def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ def test_project_keyboard_includes_new_project_action(tmp_path: Path) -> None:
 
     buttons = [button.text for row in app._project_keyboard().inline_keyboard for button in row]
 
-    assert buttons == ["demo (/tmp/demo)", "infra (/tmp/infra)", "Удалить проект", "Новый проект", "Назад"]
+    assert buttons == ["demo (/tmp/demo)", "infra (/tmp/infra)", "Delete project", "New project", "Back"]
 
 
 def test_project_delete_keyboard_marks_projects_with_red_cross(tmp_path: Path) -> None:
@@ -109,7 +109,7 @@ def test_project_delete_keyboard_marks_projects_with_red_cross(tmp_path: Path) -
 
     buttons = [button.text for row in app._project_delete_keyboard().inline_keyboard for button in row]
 
-    assert buttons == ["❌ demo (/tmp/demo)", "❌ infra (/tmp/infra)", "Назад"]
+    assert buttons == ["❌ demo (/tmp/demo)", "❌ infra (/tmp/infra)", "Back"]
 
 
 def test_project_delete_confirm_keyboard_has_yes_no_buttons(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_project_delete_confirm_keyboard_has_yes_no_buttons(tmp_path: Path) -> N
         for button in row
     ]
 
-    assert buttons == [("Да", "project:delete:yes:demo"), ("Нет", "project:delete:no")]
+    assert buttons == [("Yes", "project:delete:yes:demo"), ("No", "project:delete:no")]
 
 
 def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
@@ -135,7 +135,7 @@ def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
 
     buttons = [button.text for row in app._result_keyboard().inline_keyboard for button in row]
 
-    assert buttons == ["Новая сессия", "Сменить проект"]
+    assert buttons == ["New session", "Switch project"]
 
 
 def test_session_keyboard_includes_delete_action(tmp_path: Path) -> None:
@@ -157,7 +157,7 @@ def test_session_keyboard_includes_delete_action(tmp_path: Path) -> None:
 
     buttons = [button.text for row in app._session_keyboard([session]).inline_keyboard for button in row]
 
-    assert buttons == ["demo-1234567890ab|26-03-05|10:01", "Удалить сессию", "Новая сессия", "Назад"]
+    assert buttons == ["demo-1234567890ab|26-03-05|10:01", "Delete session", "New session", "Back"]
 
 
 def test_session_delete_keyboard_marks_sessions_with_red_cross(tmp_path: Path) -> None:
@@ -179,7 +179,7 @@ def test_session_delete_keyboard_marks_sessions_with_red_cross(tmp_path: Path) -
 
     buttons = [button.text for row in app._session_delete_keyboard([session]).inline_keyboard for button in row]
 
-    assert buttons == ["❌ demo-1234567890ab|26-03-05|10:01", "Назад"]
+    assert buttons == ["❌ demo-1234567890ab|26-03-05|10:01", "Back"]
 
 
 def test_session_delete_confirm_keyboard_has_yes_no_buttons(tmp_path: Path) -> None:
@@ -198,8 +198,8 @@ def test_session_delete_confirm_keyboard_has_yes_no_buttons(tmp_path: Path) -> N
     ]
 
     assert buttons == [
-        ("Да", "session:delete:yes:12345678-1234-1234-1234-1234567890ab"),
-        ("Нет", "session:delete:no"),
+        ("Yes", "session:delete:yes:12345678-1234-1234-1234-1234567890ab"),
+        ("No", "session:delete:no"),
     ]
 
 
@@ -215,12 +215,12 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
     commands = [(item.command, item.description) for item in app._bot_commands()]
 
     assert commands == [
-        ("menu", "Показать меню"),
-        ("projects", "Список проектов"),
-        ("sessions", "Список сессий"),
-        ("status", "Текущий статус"),
-        ("cancel", "Остановить задачу"),
-        ("restart", "Перезапустить сервис"),
+        ("menu", "Show menu"),
+        ("projects", "List projects"),
+        ("sessions", "List sessions"),
+        ("status", "Current status"),
+        ("cancel", "Stop task"),
+        ("restart", "Restart service"),
     ]
 
 
@@ -255,21 +255,21 @@ def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None
     _append_conversation_log(
         path,
         timestamp=datetime(2026, 3, 6, 12, 34, 56, tzinfo=UTC),
-        user_prompt="почини\nлог",
-        command="codex exec 'сырой prompt'",
-        codex_output="[stdout] первая строка\n[stderr] вторая строка\n",
+        user_prompt="fix\nlog",
+        command="codex exec 'raw prompt'",
+        codex_output="[stdout] first line\n[stderr] second line\n",
     )
 
     assert path.read_text(encoding="utf-8") == (
         "[2026-03-06 12:34:56 UTC]\n"
         "USER MESSAGE:\n"
-        "почини\n"
-        "лог\n"
+        "fix\n"
+        "log\n"
         "COMMAND:\n"
-        "codex exec 'сырой prompt'\n"
+        "codex exec 'raw prompt'\n"
         "CODEX OUTPUT:\n"
-        "[stdout] первая строка\n"
-        "[stderr] вторая строка\n"
+        "[stdout] first line\n"
+        "[stderr] second line\n"
         "\n"
     )
 
@@ -283,7 +283,7 @@ async def test_access_middleware_denies_non_admin_message() -> None:
     result = await middleware(handler, message, {})
 
     assert result is None
-    message.answer.assert_awaited_once_with("Нет доступа")
+    message.answer.assert_awaited_once_with("Access denied")
     handler.assert_not_awaited()
 
 
@@ -299,7 +299,7 @@ async def test_access_middleware_denies_non_admin_callback() -> None:
     result = await middleware(handler, callback, {})
 
     assert result is None
-    callback.message.answer.assert_awaited_once_with("Нет доступа")
+    callback.message.answer.assert_awaited_once_with("Access denied")
     callback.answer.assert_awaited_once_with()
     handler.assert_not_awaited()
 
@@ -352,7 +352,7 @@ async def test_restart_rejected_for_non_admin(tmp_path: Path) -> None:
 
     await app._handle_restart(message)
 
-    message.answer.assert_awaited_once_with("Команда недоступна.")
+    message.answer.assert_awaited_once_with("Command unavailable.")
 
 
 @pytest.mark.asyncio
@@ -369,7 +369,7 @@ async def test_restart_rejected_when_run_active(tmp_path: Path) -> None:
 
     await app._handle_restart(message)
 
-    message.answer.assert_awaited_once_with("Есть активные задачи. Сначала дождитесь завершения или выполните /cancel.")
+    message.answer.assert_awaited_once_with("There are active tasks. Wait for them to finish or use /cancel first.")
     restart_callback.assert_not_awaited()
 
 
@@ -382,7 +382,7 @@ async def test_restart_schedules_callback_for_admin(tmp_path: Path) -> None:
     await app._handle_restart(message)
     await asyncio.sleep(0)
 
-    message.answer.assert_awaited_once_with("Перезапуск сервиса запрошен.")
+    message.answer.assert_awaited_once_with("Service restart requested.")
     restart_callback.assert_awaited_once()
     request = _load_restart_request(app._restart_marker_path())
     assert request is not None
@@ -398,7 +398,7 @@ async def test_notify_restart_success_sends_message_and_clears_marker(tmp_path: 
 
     await app.notify_restart_success_if_needed()
 
-    app.bot.send_message.assert_awaited_once_with(1001, "Сервис был перезапущен успешно.")
+    app.bot.send_message.assert_awaited_once_with(1001, "The service restarted successfully.")
     assert not marker_path.exists()
 
 
@@ -413,16 +413,16 @@ async def test_handle_voice_message_requires_deepgram(tmp_path: Path) -> None:
 
     await app._handle_voice_message(message)
 
-    message.answer.assert_awaited_once_with("Голосовые сообщения недоступны: не настроен DEEPGRAM_API_KEY.")
+    message.answer.assert_awaited_once_with("Voice messages are unavailable: DEEPGRAM_API_KEY is not configured.")
 
 
 @pytest.mark.asyncio
 async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    deepgram = SimpleNamespace(transcribe_ogg_opus=AsyncMock(return_value="Расшифрованный текст"))
+    deepgram = SimpleNamespace(transcribe_ogg_opus=AsyncMock(return_value="Transcribed text"))
     app = _build_app(tmp_path, deepgram=deepgram)
     app._execute_prompt = AsyncMock()
 
-    async def _no_indicator(status_message, stop_event, base_text="Распознаю голосовое сообщение") -> None:
+    async def _no_indicator(status_message, stop_event, base_text="Transcribing voice message") -> None:
         await stop_event.wait()
 
     monkeypatch.setattr("telecodex_bot.bot._progress_message_indicator", _no_indicator)
@@ -445,9 +445,9 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
     bot.download_file.assert_awaited_once()
     deepgram.transcribe_ogg_opus.assert_awaited_once_with(b"voice-bytes")
     status_message.delete.assert_awaited_once()
-    assert message.answer.await_args_list[0].args == ("Распознаю голосовое сообщение ⠋",)
-    assert message.answer.await_args_list[1].args == ("Расшифрованный текст",)
-    app._execute_prompt.assert_awaited_once_with(message, "Расшифрованный текст")
+    assert message.answer.await_args_list[0].args == ("Transcribing voice message ⠋",)
+    assert message.answer.await_args_list[1].args == ("Transcribed text",)
+    app._execute_prompt.assert_awaited_once_with(message, "Transcribed text")
 
 
 @pytest.mark.asyncio
@@ -484,7 +484,7 @@ def test_project_path_browser_keyboard_lists_directories_and_confirm(tmp_path: P
         "📁 alpha",
         "📁 beta",
         f"✅ {tmp_path}",
-        "Назад",
+        "Back",
     ]
     assert [len(row) for row in keyboard.inline_keyboard] == [1, 2, 1, 1]
 

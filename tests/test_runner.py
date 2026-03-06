@@ -20,24 +20,24 @@ def test_parser_extracts_commentary_progress() -> None:
     parser = CodexJsonEventParser()
 
     events = parser.parse_line(
-        '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Смотрю FS.md"}]}}\n'
+        '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Reviewing FS.md"}]}}\n'
     )
 
     assert len(events) == 1
     assert events[0].kind == "progress"
-    assert events[0].text == "Смотрю FS.md"
+    assert events[0].text == "Reviewing FS.md"
 
 
 def test_parser_extracts_completed_agent_message() -> None:
     parser = CodexJsonEventParser()
 
     events = parser.parse_line(
-        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Готовый ответ"}}\n'
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Final reply"}}\n'
     )
 
     assert len(events) == 1
     assert events[0].kind == "assistant_snapshot"
-    assert events[0].text == "Готовый ответ"
+    assert events[0].text == "Final reply"
 
 
 def test_parser_extracts_session_id_from_thread_started() -> None:
@@ -98,9 +98,9 @@ async def test_run_result_contains_command_and_streamed_output(tmp_path: Path) -
     script = tmp_path / "fake_codex.sh"
     script.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' '{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"commentary\",\"content\":[{\"type\":\"output_text\",\"text\":\"Смотрю FS.md\"}]}}'\n"
-        "printf '%s\\n' '{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Прин\"}]}}'\n"
-        "printf '%s\\n' '{\"type\":\"item.message.delta\",\"delta\":\"ято\"}'\n"
+        "printf '%s\\n' '{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"commentary\",\"content\":[{\"type\":\"output_text\",\"text\":\"Reviewing FS.md\"}]}}'\n"
+        "printf '%s\\n' '{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Acce\"}]}}'\n"
+        "printf '%s\\n' '{\"type\":\"item.message.delta\",\"delta\":\"pted\"}'\n"
         "printf 'session id: 87654321-4321-4321-4321-ba0987654321\\n' >&2\n",
         encoding="utf-8",
     )
@@ -112,7 +112,7 @@ async def test_run_result_contains_command_and_streamed_output(tmp_path: Path) -
     result = await runner.run(
         project_path=str(tmp_path),
         codex_session_id=None,
-        user_prompt="Привет",
+        user_prompt="Hello",
         on_progress=_collector(progress_updates),
         on_message=_collector(message_updates),
         cancel_event=asyncio.Event(),
@@ -121,11 +121,11 @@ async def test_run_result_contains_command_and_streamed_output(tmp_path: Path) -
     assert result.command.startswith(str(script))
     assert "--json" in result.command
     assert result.raw_output.count("[stdout]") == 3
-    assert result.assistant_text == "Принято"
-    assert result.output == "Принято"
+    assert result.assistant_text == "Accepted"
+    assert result.output == "Accepted"
     assert result.codex_session_id == "87654321-4321-4321-4321-ba0987654321"
-    assert progress_updates == ["Смотрю FS.md"]
-    assert message_updates == ["Прин", "Принято"]
+    assert progress_updates == ["Reviewing FS.md"]
+    assert message_updates == ["Acce", "Accepted"]
 
 
 @pytest.mark.asyncio
@@ -133,7 +133,7 @@ async def test_run_uses_resume_with_json_mode(tmp_path: Path) -> None:
     script = tmp_path / "fake_codex.sh"
     script.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' '{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"last_agent_message\":\"Готово\"}}'\n",
+        "printf '%s\\n' '{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"last_agent_message\":\"Done\"}}'\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
@@ -142,14 +142,14 @@ async def test_run_uses_resume_with_json_mode(tmp_path: Path) -> None:
     result = await runner.run(
         project_path=str(tmp_path),
         codex_session_id="12345678-1234-1234-1234-1234567890ab",
-        user_prompt="Продолжай",
+        user_prompt="Continue",
         on_progress=None,
         on_message=None,
         cancel_event=asyncio.Event(),
     )
 
     assert " resume --json 12345678-1234-1234-1234-1234567890ab " in result.command
-    assert result.assistant_text == "Готово"
+    assert result.assistant_text == "Done"
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,7 @@ async def test_run_uses_completed_agent_message_as_final_text(tmp_path: Path) ->
     script.write_text(
         "#!/usr/bin/env bash\n"
         "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"87654321-4321-4321-4321-ba0987654321\"}'\n"
-        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Итоговый ответ\"}}'\n",
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Final reply\"}}'\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
@@ -168,15 +168,15 @@ async def test_run_uses_completed_agent_message_as_final_text(tmp_path: Path) ->
     result = await runner.run(
         project_path=str(tmp_path),
         codex_session_id=None,
-        user_prompt="Что изменилось?",
+        user_prompt="What changed?",
         on_progress=None,
         on_message=_collector(message_updates),
         cancel_event=asyncio.Event(),
     )
 
-    assert result.assistant_text == "Итоговый ответ"
+    assert result.assistant_text == "Final reply"
     assert result.codex_session_id == "87654321-4321-4321-4321-ba0987654321"
-    assert message_updates == ["Итоговый ответ"]
+    assert message_updates == ["Final reply"]
 
 
 def _collector(items: list[str]):

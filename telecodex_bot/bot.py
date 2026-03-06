@@ -78,12 +78,12 @@ class AccessMiddleware(BaseMiddleware):
     async def _deny(event: Message | CallbackQuery) -> None:
         callback_message = getattr(event, "message", None)
         if callback_message is not None:
-            await callback_message.answer("Нет доступа")
+            await callback_message.answer("Access denied")
             answer = getattr(event, "answer", None)
             if answer is not None:
                 await answer()
             return
-        await event.answer("Нет доступа")
+        await event.answer("Access denied")
 
 
 class TelecodexApplication:
@@ -124,12 +124,12 @@ class TelecodexApplication:
     @staticmethod
     def _bot_commands() -> list[BotCommand]:
         return [
-            BotCommand(command="menu", description="Показать меню"),
-            BotCommand(command="projects", description="Список проектов"),
-            BotCommand(command="sessions", description="Список сессий"),
-            BotCommand(command="status", description="Текущий статус"),
-            BotCommand(command="cancel", description="Остановить задачу"),
-            BotCommand(command="restart", description="Перезапустить сервис"),
+            BotCommand(command="menu", description="Show menu"),
+            BotCommand(command="projects", description="List projects"),
+            BotCommand(command="sessions", description="List sessions"),
+            BotCommand(command="status", description="Current status"),
+            BotCommand(command="cancel", description="Stop task"),
+            BotCommand(command="restart", description="Restart service"),
         ]
 
     def _register_handlers(self) -> None:
@@ -140,7 +140,7 @@ class TelecodexApplication:
         @self.router.message(Command("projects"))
         async def projects(message: Message) -> None:
             self.pending_project_drafts.pop(message.chat.id, None)
-            await message.answer("Доступные проекты:", reply_markup=self._project_keyboard())
+            await message.answer("Available projects:", reply_markup=self._project_keyboard())
 
         @self.router.message(Command("project"))
         async def set_project(message: Message) -> None:
@@ -148,11 +148,11 @@ class TelecodexApplication:
             self.pending_project_drafts.pop(chat_id, None)
             args = _command_arg(message.text)
             if not args:
-                await message.answer("Выберите проект:", reply_markup=self._project_keyboard())
+                await message.answer("Select a project:", reply_markup=self._project_keyboard())
                 return
             project_name = args.strip()
             if project_name not in self.projects:
-                await message.answer("Неизвестный проект. Используйте кнопки или /projects.")
+                await message.answer("Unknown project. Use the buttons or /projects.")
                 return
             latest_session = await self._latest_session_for_project(project_name)
             await self.repo.set_chat_state(
@@ -162,12 +162,12 @@ class TelecodexApplication:
             )
             if latest_session is None:
                 await message.answer(
-                    f"Проект: {project_name}\nСессий проекта пока нет. Следующий запуск начнет новую сессию.",
+                    f"Project: {project_name}\nThis project has no sessions yet. The next request will start a new session.",
                     reply_markup=self._menu_keyboard(),
                 )
                 return
             await message.answer(
-                f"Проект: {project_name}\nВыбрана последняя сессия проекта: <code>{html.escape(self._session_title(latest_session))}</code>",
+                f"Project: {project_name}\nSelected latest project session: <code>{html.escape(self._session_title(latest_session))}</code>",
                 reply_markup=self._menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -176,7 +176,7 @@ class TelecodexApplication:
         async def pwd(message: Message) -> None:
             state = await self.repo.get_chat_state(message.chat.id)
             if not state or not state.project_name:
-                await message.answer("Проект не выбран. Используйте /menu.")
+                await message.answer("No project selected. Use /menu.")
                 return
             project_path = self.projects[state.project_name]
             await message.answer(f"{state.project_name}: {project_path}")
@@ -187,13 +187,13 @@ class TelecodexApplication:
             arg = _command_arg(message.text).strip()
             state = await self.repo.get_chat_state(message.chat.id)
             if not state or not state.project_name:
-                await message.answer("Сначала выберите проект через /menu.")
+                await message.answer("Select a project first via /menu.")
                 return
             if not arg:
                 items = await self.repo.list_sessions(state.project_name, self.settings.sessions_list_limit)
                 if not items:
                     await message.answer(
-                        f"Сессий проекта {state.project_name} пока нет.",
+                        f"No sessions yet for project {state.project_name}.",
                         reply_markup=self._new_session_keyboard(),
                     )
                     return
@@ -207,17 +207,17 @@ class TelecodexApplication:
             if arg == "new":
                 await self.repo.set_chat_state(message.chat.id, state.project_name, None)
                 await message.answer(
-                    "Введенное сообщение/запрос начнет новую сессию Codex",
+                    "The next message/request will start a new Codex session",
                     reply_markup=self._menu_keyboard(),
                 )
                 return
             selected = await self.repo.get_session(arg)
             if not selected or selected.project_name != state.project_name:
-                await message.answer("Сессия не найдена в текущем проекте.")
+                await message.answer("Session not found in the current project.")
                 return
             await self.repo.set_chat_state(message.chat.id, state.project_name, selected.codex_session_id)
             await message.answer(
-                f"Выбрана сессия: <code>{html.escape(self._session_title(selected))}</code>",
+                f"Selected session: <code>{html.escape(self._session_title(selected))}</code>",
                 reply_markup=self._menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -226,17 +226,17 @@ class TelecodexApplication:
         async def session_name(message: Message) -> None:
             alias = _command_arg(message.text)
             if not alias:
-                await message.answer("Использование: /session_name <alias>")
+                await message.answer("Usage: /session_name <alias>")
                 return
             state = await self.repo.get_chat_state(message.chat.id)
             if not state or not state.codex_session_id:
-                await message.answer("Сначала выберите сессию.")
+                await message.answer("Select a session first.")
                 return
             updated = await self.repo.rename_session(state.codex_session_id, alias.strip())
             if not updated:
-                await message.answer("Не удалось обновить alias.")
+                await message.answer("Could not update alias.")
                 return
-            await message.answer("Название сессии обновлено.", reply_markup=self._menu_keyboard())
+            await message.answer("Session name updated.", reply_markup=self._menu_keyboard())
 
         @self.router.message(Command("whereami", "status"))
         async def whereami(message: Message) -> None:
@@ -248,10 +248,10 @@ class TelecodexApplication:
             self.pending_project_drafts.pop(message.chat.id, None)
             run = self.active_runs.get(message.chat.id)
             if run is None:
-                await message.answer("Активной задачи нет.")
+                await message.answer("There is no active task.")
                 return
             run.cancel_event.set()
-            await message.answer("Отмена запрошена.", reply_markup=self._menu_keyboard())
+            await message.answer("Cancellation requested.", reply_markup=self._menu_keyboard())
 
         @self.router.message(Command("restart"))
         async def restart(message: Message) -> None:
@@ -298,11 +298,11 @@ class TelecodexApplication:
             project_name = callback.data.removeprefix("project:delete:confirm:")
             project_path = self.projects.get(project_name)
             if project_path is None:
-                await callback.answer("Проект не найден.", show_alert=True)
+                await callback.answer("Project not found.", show_alert=True)
                 return
             await self._edit_callback_message(
                 callback,
-                "Удалить проект?\n" f"<code>{html.escape(self._project_button_label(project_name, project_path))}</code>",
+                "Delete this project?\n" f"<code>{html.escape(self._project_button_label(project_name, project_path))}</code>",
                 self._project_delete_confirm_keyboard(project_name),
                 parse_mode="HTML",
             )
@@ -313,23 +313,23 @@ class TelecodexApplication:
             project_name = callback.data.removeprefix("project:delete:yes:")
             deleted = await self.repo.delete_project(project_name)
             if not deleted:
-                await callback.answer("Проект не найден.", show_alert=True)
+                await callback.answer("Project not found.", show_alert=True)
                 return
             self.projects.pop(project_name, None)
             await self._show_project_delete_list(callback)
-            await callback.answer("Проект удален.")
+            await callback.answer("Project deleted.")
 
         @self.router.callback_query(F.data == "project:delete:no")
         async def project_delete_no(callback: CallbackQuery) -> None:
             await self._show_project_delete_list(callback)
-            await callback.answer("Удаление отменено.")
+            await callback.answer("Deletion cancelled.")
 
         @self.router.callback_query(F.data == "project:new")
         async def project_new(callback: CallbackQuery) -> None:
             self.pending_project_drafts[callback.message.chat.id] = PendingProjectDraft()
             await self._edit_callback_message(
                 callback,
-                "Введите название нового проекта:",
+                "Enter the new project name:",
                 self._project_creation_keyboard(),
             )
             await callback.answer()
@@ -337,14 +337,14 @@ class TelecodexApplication:
         @self.router.callback_query(F.data == "project:new:cancel")
         async def project_new_cancel(callback: CallbackQuery) -> None:
             self.pending_project_drafts.pop(callback.message.chat.id, None)
-            await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
-            await callback.answer("Создание проекта отменено.")
+            await self._edit_callback_message(callback, "Select a project:", self._project_keyboard())
+            await callback.answer("Project creation cancelled.")
 
         @self.router.callback_query(F.data == "project:new:path:up")
         async def project_new_path_up(callback: CallbackQuery) -> None:
             draft = self.pending_project_drafts.get(callback.message.chat.id)
             if draft is None or draft.name is None:
-                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                await callback.answer("Enter the project name first.", show_alert=True)
                 return
             if draft.current_path != draft.current_path.parent:
                 draft.current_path = draft.current_path.parent
@@ -360,17 +360,17 @@ class TelecodexApplication:
         async def project_new_path_open(callback: CallbackQuery) -> None:
             draft = self.pending_project_drafts.get(callback.message.chat.id)
             if draft is None or draft.name is None:
-                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                await callback.answer("Enter the project name first.", show_alert=True)
                 return
             index_text = callback.data.removeprefix("project:new:path:open:")
             try:
                 index = int(index_text)
             except ValueError:
-                await callback.answer("Папка не найдена.", show_alert=True)
+                await callback.answer("Folder not found.", show_alert=True)
                 return
             entries = self._project_browser_entries(draft.current_path)
             if index < 0 or index >= len(entries):
-                await callback.answer("Папка не найдена.", show_alert=True)
+                await callback.answer("Folder not found.", show_alert=True)
                 return
             draft.current_path = draft.current_path / entries[index]
             await self._edit_callback_message(
@@ -385,22 +385,22 @@ class TelecodexApplication:
         async def project_new_path_select(callback: CallbackQuery) -> None:
             draft = self.pending_project_drafts.get(callback.message.chat.id)
             if draft is None or draft.name is None:
-                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                await callback.answer("Enter the project name first.", show_alert=True)
                 return
             await self._complete_project_creation(callback.message.chat.id, draft)
             await self._edit_callback_message(
                 callback,
-                f"Проект создан: {draft.name}\nПуть: {draft.current_path}\nСледующий запуск начнет новую сессию.",
+                f"Project created: {draft.name}\nPath: {draft.current_path}\nThe next request will start a new session.",
                 self._menu_keyboard(),
             )
-            await callback.answer("Проект создан.")
+            await callback.answer("Project created.")
 
         @self.router.callback_query(F.data.startswith("project:set:"))
         async def project_set(callback: CallbackQuery) -> None:
             project_name = callback.data.removeprefix("project:set:")
             self.pending_project_drafts.pop(callback.message.chat.id, None)
             if project_name not in self.projects:
-                await callback.answer("Проект не найден.", show_alert=True)
+                await callback.answer("Project not found.", show_alert=True)
                 return
             latest_session = await self._latest_session_for_project(project_name)
             await self.repo.set_chat_state(
@@ -411,26 +411,26 @@ class TelecodexApplication:
             if latest_session is None:
                 await self._edit_callback_message(
                     callback,
-                    f"Проект переключен на {project_name}.\nСессий проекта пока нет. Следующий запуск начнет новую сессию.",
+                    f"Switched to project {project_name}.\nThis project has no sessions yet. The next request will start a new session.",
                     self._menu_keyboard(),
                 )
             else:
                 await self._edit_callback_message(
                     callback,
                     (
-                        f"Проект переключен на {project_name}.\n"
-                        f"Выбрана последняя сессия проекта: <code>{html.escape(self._session_title(latest_session))}</code>"
+                        f"Switched to project {project_name}.\n"
+                        f"Selected latest project session: <code>{html.escape(self._session_title(latest_session))}</code>"
                     ),
                     self._menu_keyboard(),
                     parse_mode="HTML",
                 )
-            await callback.answer("Проект обновлен.")
+            await callback.answer("Project updated.")
 
         @self.router.callback_query(F.data == "session:list")
         async def session_list(callback: CallbackQuery) -> None:
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             await self._show_session_list(callback, state.project_name, state.codex_session_id)
             await callback.answer()
@@ -439,21 +439,21 @@ class TelecodexApplication:
         async def session_new(callback: CallbackQuery) -> None:
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, None)
             await self._edit_callback_message(
                 callback,
-                "Введенное сообщение/запрос начнет новую сессию Codex",
+                "The next message/request will start a new Codex session",
                 self._menu_keyboard(),
             )
-            await callback.answer("Будет создана новая сессия.")
+            await callback.answer("A new session will be started.")
 
         @self.router.callback_query(F.data == "session:delete:list")
         async def session_delete_list(callback: CallbackQuery) -> None:
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             await self._show_session_delete_list(callback, state.project_name)
             await callback.answer()
@@ -463,15 +463,15 @@ class TelecodexApplication:
             codex_session_id = callback.data.removeprefix("session:delete:confirm:")
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             session_item = await self.repo.get_session(codex_session_id)
             if not session_item or session_item.project_name != state.project_name:
-                await callback.answer("Сессия не найдена.", show_alert=True)
+                await callback.answer("Session not found.", show_alert=True)
                 return
             await self._edit_callback_message(
                 callback,
-                "Удалить сессию?\n" f"<code>{html.escape(self._session_title(session_item))}</code>",
+                "Delete this session?\n" f"<code>{html.escape(self._session_title(session_item))}</code>",
                 self._session_delete_confirm_keyboard(session_item.codex_session_id),
                 parse_mode="HTML",
             )
@@ -482,60 +482,60 @@ class TelecodexApplication:
             codex_session_id = callback.data.removeprefix("session:delete:yes:")
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             deleted = await self.repo.delete_session(codex_session_id)
             if not deleted:
-                await callback.answer("Сессия не найдена.", show_alert=True)
+                await callback.answer("Session not found.", show_alert=True)
                 return
             await self._show_session_delete_list(callback, state.project_name)
-            await callback.answer("Сессия удалена.")
+            await callback.answer("Session deleted.")
 
         @self.router.callback_query(F.data == "session:delete:no")
         async def session_delete_no(callback: CallbackQuery) -> None:
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             await self._show_session_delete_list(callback, state.project_name)
-            await callback.answer("Удаление отменено.")
+            await callback.answer("Deletion cancelled.")
 
         @self.router.callback_query(F.data.startswith("session:set:"))
         async def session_set(callback: CallbackQuery) -> None:
             codex_session_id = callback.data.removeprefix("session:set:")
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
-                await callback.answer("Сначала выберите проект.", show_alert=True)
+                await callback.answer("Select a project first.", show_alert=True)
                 return
             selected = await self.repo.get_session(codex_session_id)
             if not selected or selected.project_name != state.project_name:
-                await callback.answer("Сессия не найдена.", show_alert=True)
+                await callback.answer("Session not found.", show_alert=True)
                 return
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, selected.codex_session_id)
             await self._edit_callback_message(
                 callback,
-                f"Выбрана сессия: <code>{html.escape(self._session_title(selected))}</code>",
+                f"Selected session: <code>{html.escape(self._session_title(selected))}</code>",
                 self._menu_keyboard(),
                 parse_mode="HTML",
             )
-            await callback.answer("Сессия обновлена.")
+            await callback.answer("Session updated.")
 
         @self.router.callback_query(F.data == "action:stop")
         async def action_stop(callback: CallbackQuery) -> None:
             run = self.active_runs.get(callback.message.chat.id)
             if run is None:
-                await callback.answer("Активной задачи нет.")
+                await callback.answer("There is no active task.")
                 return
             run.cancel_event.set()
-            await callback.answer("Отмена запрошена.")
+            await callback.answer("Cancellation requested.")
 
         @self.router.callback_query(F.data == "help:show")
         async def help_show(callback: CallbackQuery) -> None:
             text = (
-                "Как пользоваться:\n"
-                "1. Выберите проект.\n"
-                "2. Выберите сохраненную сессию или начните новую.\n"
-                "3. Отправьте задачу обычным сообщением."
+                "How to use the bot:\n"
+                "1. Select a project.\n"
+                "2. Select a saved session or start a new one.\n"
+                "3. Send your task as a regular message."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
@@ -543,12 +543,12 @@ class TelecodexApplication:
     async def _execute_prompt(self, message: Message, prompt: str) -> None:
         chat_id = message.chat.id
         if chat_id in self.active_runs:
-            await message.answer("В этом чате уже выполняется задача. Используйте /status или кнопку Стоп.")
+            await message.answer("A task is already running in this chat. Use /status or the Stop button.")
             return
 
         state = await self.repo.get_chat_state(chat_id)
         if not state or not state.project_name:
-            await message.answer("Сначала выберите проект через /menu.")
+            await message.answer("Select a project first via /menu.")
             return
 
         current_session = await self._get_selected_session(state)
@@ -608,16 +608,16 @@ class TelecodexApplication:
         assistant_text = (result.assistant_text or result.display_text or result.output).strip()
         if result.cancelled:
             summary = "cancelled"
-            final_text = assistant_text or "Запуск отменен."
+            final_text = assistant_text or "Run cancelled."
         elif result.timed_out:
             summary = "failed: timeout"
-            final_text = assistant_text or "Codex не успел вернуть ответ до таймаута."
+            final_text = assistant_text or "Codex did not return a reply before the timeout."
         elif result.success:
             summary = "done"
-            final_text = assistant_text or "Ответ пуст."
+            final_text = assistant_text or "Empty response."
         else:
             summary = f"failed: code={result.return_code}"
-            final_text = assistant_text or "Codex завершился с ошибкой без текстового ответа."
+            final_text = assistant_text or "Codex exited with an error and no text response."
 
         await stream.finish(
             result.success,
@@ -632,7 +632,7 @@ class TelecodexApplication:
         if not message.voice:
             return
         if self.deepgram is None:
-            await message.answer("Голосовые сообщения недоступны: не настроен DEEPGRAM_API_KEY.")
+            await message.answer("Voice messages are unavailable: DEEPGRAM_API_KEY is not configured.")
             return
 
         try:
@@ -642,23 +642,23 @@ class TelecodexApplication:
             return
         except Exception:
             logger.exception("Voice download failed", extra={"chat_id": message.chat.id})
-            await message.answer("Ошибка при загрузке голосового сообщения.")
+            await message.answer("Failed to download the voice message.")
             return
 
-        status_message = await message.answer("Распознаю голосовое сообщение ⠋")
+        status_message = await message.answer("Transcribing voice message ⠋")
         stop_event = asyncio.Event()
         indicator_task = asyncio.create_task(_progress_message_indicator(status_message, stop_event))
         try:
             transcript = await self.deepgram.transcribe_ogg_opus(voice_bytes)
         except DeepgramServiceUnavailable:
-            await message.answer("Deepgram временно недоступен. Попробуйте позже.")
+            await message.answer("Deepgram is temporarily unavailable. Try again later.")
             return
         except DeepgramProviderError as exc:
-            await message.answer(f"Ошибка распознавания: {exc}")
+            await message.answer(f"Transcription error: {exc}")
             return
         except Exception:
             logger.exception("Deepgram unexpected error", extra={"chat_id": message.chat.id})
-            await message.answer("Непредвиденная ошибка распознавания голоса.")
+            await message.answer("Unexpected voice transcription error.")
             return
         finally:
             stop_event.set()
@@ -672,15 +672,15 @@ class TelecodexApplication:
 
     async def _download_voice_bytes(self, message: Message) -> bytes:
         if not message.voice:
-            raise ValueError("Голосовое сообщение не найдено.")
+            raise ValueError("Voice message not found.")
         file = await message.bot.get_file(message.voice.file_id)
         if not file.file_path:
-            raise ValueError("Не удалось получить голосовой файл.")
+            raise ValueError("Could not retrieve the voice file.")
         buffer = io.BytesIO()
         await message.bot.download_file(file.file_path, destination=buffer)
         voice_bytes = buffer.getvalue()
         if not voice_bytes:
-            raise ValueError("Не удалось скачать голосовое сообщение.")
+            raise ValueError("Could not download the voice message.")
         return voice_bytes
 
     async def _get_selected_session(self, state: ChatState) -> SessionRecord | None:
@@ -724,11 +724,11 @@ class TelecodexApplication:
             return
         user_text = (message.text or "").strip()
         if not user_text:
-            await message.answer("Введите непустое значение.", reply_markup=self._project_creation_keyboard())
+            await message.answer("Enter a non-empty value.", reply_markup=self._project_creation_keyboard())
             return
         if draft.name is None:
             if user_text in self.projects:
-                await message.answer("Проект с таким названием уже существует. Введите другое название.", reply_markup=self._project_creation_keyboard())
+                await message.answer("A project with this name already exists. Enter a different name.", reply_markup=self._project_creation_keyboard())
                 return
             draft.name = user_text
             draft.current_path = Path("/")
@@ -740,21 +740,21 @@ class TelecodexApplication:
             return
 
         await message.answer(
-            "Путь проекта выбирается кнопками ниже.",
+            "Choose the project path with the buttons below.",
             reply_markup=self._project_path_browser_keyboard(draft),
         )
 
     async def _handle_restart(self, message: Message) -> None:
         chat_id = message.chat.id
         if not self._is_admin_chat(chat_id):
-            await message.answer("Команда недоступна.")
+            await message.answer("Command unavailable.")
             return
         if self.active_runs:
-            await message.answer("Есть активные задачи. Сначала дождитесь завершения или выполните /cancel.")
+            await message.answer("There are active tasks. Wait for them to finish or use /cancel first.")
             return
         logger.warning("Restart requested by admin", extra={"chat_id": chat_id})
         _save_restart_request(self._restart_marker_path(), chat_id=chat_id, requested_at=datetime.now(UTC))
-        await message.answer("Перезапуск сервиса запрошен.")
+        await message.answer("Service restart requested.")
         asyncio.create_task(self.restart_callback())
 
     async def notify_restart_success_if_needed(self) -> None:
@@ -762,7 +762,7 @@ class TelecodexApplication:
         if request is None:
             return
         try:
-            await self.bot.send_message(request.chat_id, "Сервис был перезапущен успешно.")
+            await self.bot.send_message(request.chat_id, "The service restarted successfully.")
         except Exception:
             logger.exception("Failed to send restart success notification", extra={"chat_id": request.chat_id})
             return
@@ -771,9 +771,9 @@ class TelecodexApplication:
     async def _state_card(self, chat_id: int) -> str:
         state = await self.repo.get_chat_state(chat_id)
         run = self.active_runs.get(chat_id)
-        project = state.project_name if state and state.project_name else "не выбран"
+        project = state.project_name if state and state.project_name else "not selected"
         project_path = str(self.projects[state.project_name]) if state and state.project_name else "-"
-        session_text = "не выбрана"
+        session_text = "not selected"
         updated_at = state.updated_at if state else ""
         if state and state.codex_session_id:
             session_item = await self.repo.get_session(state.codex_session_id)
@@ -787,11 +787,11 @@ class TelecodexApplication:
         last_seen = self._format_timestamp(updated_at) if updated_at else "-"
         return (
             "Telecodex\n"
-            f"Проект: {html.escape(project)}\n"
-            f"Путь: {html.escape(project_path)}\n"
-            f"Сессия: {self._session_text_html(session_text)}\n"
-            f"Статус: {html.escape(status)}\n"
-            f"Последняя активность: {html.escape(last_seen)}"
+            f"Project: {html.escape(project)}\n"
+            f"Path: {html.escape(project_path)}\n"
+            f"Session: {self._session_text_html(session_text)}\n"
+            f"Status: {html.escape(status)}\n"
+            f"Last activity: {html.escape(last_seen)}"
         )
 
     async def _edit_callback_message(
@@ -807,11 +807,11 @@ class TelecodexApplication:
 
     def _menu_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Проект", callback_data="project:list")
-        builder.button(text="Сессия", callback_data="session:list")
-        builder.button(text="Новая сессия", callback_data="session:new")
-        builder.button(text="Стоп", callback_data="action:stop")
-        builder.button(text="Помощь", callback_data="help:show")
+        builder.button(text="Project", callback_data="project:list")
+        builder.button(text="Session", callback_data="session:list")
+        builder.button(text="New session", callback_data="session:new")
+        builder.button(text="Stop", callback_data="action:stop")
+        builder.button(text="Help", callback_data="help:show")
         builder.adjust(2, 2, 1)
         return builder.as_markup()
 
@@ -819,9 +819,9 @@ class TelecodexApplication:
         builder = InlineKeyboardBuilder()
         for name, path in self.projects.items():
             builder.button(text=self._project_button_label(name, path), callback_data=f"project:set:{name}")
-        builder.button(text="Удалить проект", callback_data="project:delete:list")
-        builder.button(text="Новый проект", callback_data="project:new")
-        builder.button(text="Назад", callback_data="menu:root")
+        builder.button(text="Delete project", callback_data="project:delete:list")
+        builder.button(text="New project", callback_data="project:new")
+        builder.button(text="Back", callback_data="menu:root")
         builder.adjust(1)
         return builder.as_markup()
 
@@ -832,20 +832,20 @@ class TelecodexApplication:
                 text=f"❌ {self._project_button_label(name, path)}",
                 callback_data=f"project:delete:confirm:{name}",
             )
-        builder.button(text="Назад", callback_data="project:list")
+        builder.button(text="Back", callback_data="project:list")
         builder.adjust(1)
         return builder.as_markup()
 
     def _project_delete_confirm_keyboard(self, project_name: str) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Да", callback_data=f"project:delete:yes:{project_name}")
-        builder.button(text="Нет", callback_data="project:delete:no")
+        builder.button(text="Yes", callback_data=f"project:delete:yes:{project_name}")
+        builder.button(text="No", callback_data="project:delete:no")
         builder.adjust(2)
         return builder.as_markup()
 
     def _project_creation_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Назад", callback_data="project:new:cancel")
+        builder.button(text="Back", callback_data="project:new:cancel")
         builder.adjust(1)
         return builder.as_markup()
 
@@ -861,13 +861,13 @@ class TelecodexApplication:
             rows.append([InlineKeyboardButton(text="⬆️ ..", callback_data="project:new:path:up")])
         rows.extend(self._project_browser_folder_rows(entries))
         rows.append([InlineKeyboardButton(text=f"✅ {draft.current_path}", callback_data="project:new:path:select")])
-        rows.append([InlineKeyboardButton(text="Назад", callback_data="project:new:cancel")])
+        rows.append([InlineKeyboardButton(text="Back", callback_data="project:new:cancel")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     def _project_path_browser_text(self, draft: PendingProjectDraft) -> str:
         return (
-            f"Название проекта: {html.escape(draft.name or '-')}\n"
-            "Выберите корневую папку проекта:\n"
+            f"Project name: {html.escape(draft.name or '-')}\n"
+            "Choose the project root folder:\n"
             f"<code>{html.escape(str(draft.current_path))}</code>"
         )
 
@@ -905,19 +905,19 @@ class TelecodexApplication:
         await self.repo.set_chat_state(chat_id, project_name, None)
 
     async def _show_project_list(self, callback: CallbackQuery) -> None:
-        await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
+        await self._edit_callback_message(callback, "Select a project:", self._project_keyboard())
 
     async def _show_project_delete_list(self, callback: CallbackQuery) -> None:
         if not self.projects:
             await self._edit_callback_message(
                 callback,
-                "Проектов пока нет.",
+                "No projects yet.",
                 self._project_creation_keyboard(),
             )
             return
         await self._edit_callback_message(
             callback,
-            "Удаление проектов:",
+            "Delete projects:",
             self._project_delete_keyboard(),
         )
 
@@ -925,9 +925,9 @@ class TelecodexApplication:
         builder = InlineKeyboardBuilder()
         for item in sessions:
             builder.button(text=self._session_title(item), callback_data=f"session:set:{item.codex_session_id}")
-        builder.button(text="Удалить сессию", callback_data="session:delete:list")
-        builder.button(text="Новая сессия", callback_data="session:new")
-        builder.button(text="Назад", callback_data="menu:root")
+        builder.button(text="Delete session", callback_data="session:delete:list")
+        builder.button(text="New session", callback_data="session:new")
+        builder.button(text="Back", callback_data="menu:root")
         builder.adjust(1)
         return builder.as_markup()
 
@@ -938,34 +938,34 @@ class TelecodexApplication:
                 text=f"❌ {self._session_title(item)}",
                 callback_data=f"session:delete:confirm:{item.codex_session_id}",
             )
-        builder.button(text="Назад", callback_data="session:list")
+        builder.button(text="Back", callback_data="session:list")
         builder.adjust(1)
         return builder.as_markup()
 
     def _session_delete_confirm_keyboard(self, codex_session_id: str) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Да", callback_data=f"session:delete:yes:{codex_session_id}")
-        builder.button(text="Нет", callback_data="session:delete:no")
+        builder.button(text="Yes", callback_data=f"session:delete:yes:{codex_session_id}")
+        builder.button(text="No", callback_data="session:delete:no")
         builder.adjust(2)
         return builder.as_markup()
 
     def _session_delete_empty_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Назад", callback_data="session:list")
+        builder.button(text="Back", callback_data="session:list")
         builder.adjust(1)
         return builder.as_markup()
 
     def _new_session_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Новая сессия", callback_data="session:new")
-        builder.button(text="Назад", callback_data="menu:root")
+        builder.button(text="New session", callback_data="session:new")
+        builder.button(text="Back", callback_data="menu:root")
         builder.adjust(1)
         return builder.as_markup()
 
     def _result_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Новая сессия", callback_data="session:new")
-        builder.button(text="Сменить проект", callback_data="project:list")
+        builder.button(text="New session", callback_data="session:new")
+        builder.button(text="Switch project", callback_data="project:list")
         builder.adjust(2)
         return builder.as_markup()
 
@@ -984,11 +984,11 @@ class TelecodexApplication:
 
     @staticmethod
     def _sessions_title(project_name: str) -> str:
-        return f"Сессии проекта {project_name}:"
+        return f"Project sessions: {project_name}"
 
     @staticmethod
     def _delete_sessions_title(project_name: str) -> str:
-        return f"Удаление сессий проекта {project_name}:"
+        return f"Delete sessions: {project_name}"
 
     def _format_session_line(self, session: SessionRecord, active_session_id: str | None) -> str:
         marker = "•"
@@ -1006,7 +1006,7 @@ class TelecodexApplication:
         if not items:
             await self._edit_callback_message(
                 callback,
-                f"Сессий проекта {project_name} пока нет.",
+                f"No sessions yet for project {project_name}.",
                 self._new_session_keyboard(),
             )
             return
@@ -1023,7 +1023,7 @@ class TelecodexApplication:
         if not items:
             await self._edit_callback_message(
                 callback,
-                f"Сессий проекта {project_name} пока нет.",
+                f"No sessions yet for project {project_name}.",
                 self._session_delete_empty_keyboard(),
             )
             return
@@ -1049,7 +1049,7 @@ class TelecodexApplication:
 
     @staticmethod
     def _session_text_html(value: str) -> str:
-        if value == "не выбрана":
+        if value == "not selected":
             return value
         return f"<code>{html.escape(value)}</code>"
 
@@ -1118,7 +1118,7 @@ def _clear_restart_request(path: Path) -> None:
 async def _progress_message_indicator(
     status_message: Message,
     stop_event: asyncio.Event,
-    base_text: str = "Распознаю голосовое сообщение",
+    base_text: str = "Transcribing voice message",
 ) -> None:
     frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     idx = 0

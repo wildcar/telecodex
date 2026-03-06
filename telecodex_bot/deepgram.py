@@ -28,7 +28,7 @@ class DeepgramService:
         try:
             import httpx as httpx_module
         except ModuleNotFoundError as exc:
-            raise DeepgramServiceUnavailable("Для голосового ввода не установлен пакет httpx") from exc
+            raise DeepgramServiceUnavailable("The httpx package is not installed for voice input") from exc
         self._httpx = httpx_module
         self._model = model
         self._retries = retries
@@ -52,15 +52,15 @@ class DeepgramService:
 
         channels = payload.get("results", {}).get("channels", [])
         if not isinstance(channels, list) or not channels:
-            raise DeepgramProviderError("Deepgram вернул пустой ответ")
+            raise DeepgramProviderError("Deepgram returned an empty response")
 
         alternatives = channels[0].get("alternatives", [])
         if not isinstance(alternatives, list) or not alternatives:
-            raise DeepgramProviderError("Deepgram вернул пустую расшифровку")
+            raise DeepgramProviderError("Deepgram returned an empty transcript")
 
         transcript = alternatives[0].get("transcript")
         if not isinstance(transcript, str) or not transcript.strip():
-            raise DeepgramProviderError("Не удалось распознать речь")
+            raise DeepgramProviderError("Could not recognize speech")
         return transcript.strip()
 
     async def _transcribe(self, audio_bytes: bytes, model: str) -> dict[str, Any]:
@@ -79,9 +79,9 @@ class DeepgramService:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise DeepgramProviderError("Deepgram вернул некорректный JSON") from exc
+            raise DeepgramProviderError("Deepgram returned invalid JSON") from exc
         if not isinstance(payload, dict):
-            raise DeepgramProviderError("Deepgram вернул неожиданный ответ")
+            raise DeepgramProviderError("Deepgram returned an unexpected response")
         return payload
 
     async def _request_with_retry(self, method: str, url: str, **kwargs: Any) -> Any:
@@ -93,7 +93,7 @@ class DeepgramService:
                     if attempt < attempts:
                         await asyncio.sleep(0.4 * attempt)
                         continue
-                    raise DeepgramServiceUnavailable("Deepgram временно недоступен")
+                    raise DeepgramServiceUnavailable("Deepgram is temporarily unavailable")
                 response.raise_for_status()
                 return response
             except (
@@ -102,9 +102,9 @@ class DeepgramService:
                 self._httpx.RemoteProtocolError,
             ) as exc:
                 if attempt >= attempts:
-                    raise DeepgramServiceUnavailable("Не удалось связаться с Deepgram") from exc
+                    raise DeepgramServiceUnavailable("Could not reach Deepgram") from exc
                 await asyncio.sleep(0.4 * attempt)
             except self._httpx.HTTPStatusError as exc:
                 body = exc.response.text[:400]
                 raise DeepgramProviderError(f"Deepgram HTTP {exc.response.status_code}: {body}") from exc
-        raise DeepgramServiceUnavailable("Deepgram временно недоступен")
+        raise DeepgramServiceUnavailable("Deepgram is temporarily unavailable")
