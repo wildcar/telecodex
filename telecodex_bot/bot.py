@@ -348,7 +348,7 @@ class TelecodexApplication:
             tail_chars=self.settings.stream_tail_chars,
             send_log_threshold=self.settings.stream_send_log_threshold,
         )
-        await stream.start("Собеседник печатает...")
+        await stream.start("Telecodex thinking...")
         await stream.publish_status(f"Подготавливаю запуск в проекте {state.project_name}.")
 
         cancel_event = asyncio.Event()

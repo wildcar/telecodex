@@ -71,7 +71,7 @@ def test_streaming_answer_is_rendered_before_finish() -> None:
     async def run() -> tuple[str | None, list[str]]:
         bot = DummyBot()
         editor = TelegramStreamEditor(bot=bot, chat_id=1, interval_sec=0.01, tail_chars=50, send_log_threshold=1000)
-        await editor.start("Собеседник печатает...")
+        await editor.start("Telecodex thinking...")
         await editor.publish_status("Смотрю FS.md")
         await asyncio.sleep(0.03)
         await editor.publish_answer("Первая часть ответа")
