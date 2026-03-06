@@ -114,7 +114,6 @@ class TelecodexApplication:
             BotCommand(command="projects", description="Список проектов"),
             BotCommand(command="sessions", description="Список сессий"),
             BotCommand(command="session", description="Выбрать или сбросить сессию"),
-            BotCommand(command="run", description="Запустить задачу"),
             BotCommand(command="status", description="Текущий статус"),
             BotCommand(command="cancel", description="Остановить задачу"),
             BotCommand(command="restart", description="Перезапустить сервис"),
@@ -234,14 +233,6 @@ class TelecodexApplication:
         async def restart(message: Message) -> None:
             await self._handle_restart(message)
 
-        @self.router.message(Command("run"))
-        async def run_cmd(message: Message) -> None:
-            prompt = _command_arg(message.text)
-            if not prompt:
-                await message.answer("Использование: /run <task>")
-                return
-            await self._execute_prompt(message, prompt)
-
         @self.router.message(F.voice)
         async def run_voice(message: Message) -> None:
             await self._handle_voice_message(message)
@@ -338,7 +329,7 @@ class TelecodexApplication:
                 "1. Выберите проект.\n"
                 "2. Выберите сохраненную сессию или сбросьте текущую.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
-                "Команды как fallback: /project, /session, /run, /cancel, /restart."
+                "Команды как fallback: /project, /session, /cancel, /restart."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
