@@ -8,7 +8,7 @@ import logging
 import os
 import signal
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -44,6 +44,8 @@ class RestartRequest:
 @dataclass(slots=True)
 class PendingProjectDraft:
     name: str | None = None
+    current_path: Path = Path("/")
+    entries: list[str] = field(default_factory=list)
 
 
 class AccessMiddleware(BaseMiddleware):
@@ -306,6 +308,69 @@ class TelecodexApplication:
             self.pending_project_drafts.pop(callback.message.chat.id, None)
             await self._edit_callback_message(callback, "Выберите проект:", self._project_keyboard())
             await callback.answer("Создание проекта отменено.")
+
+        @self.router.callback_query(F.data == "project:new:path:up")
+        async def project_new_path_up(callback: CallbackQuery) -> None:
+            draft = self.pending_project_drafts.get(callback.message.chat.id)
+            if draft is None or draft.name is None:
+                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                return
+            if draft.current_path != draft.current_path.parent:
+                draft.current_path = draft.current_path.parent
+            await self._edit_callback_message(
+                callback,
+                self._project_path_browser_text(draft),
+                self._project_path_browser_keyboard(draft),
+                parse_mode="HTML",
+            )
+            await callback.answer()
+
+        @self.router.callback_query(F.data.startswith("project:new:path:open:"))
+        async def project_new_path_open(callback: CallbackQuery) -> None:
+            draft = self.pending_project_drafts.get(callback.message.chat.id)
+            if draft is None or draft.name is None:
+                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                return
+            index_text = callback.data.removeprefix("project:new:path:open:")
+            try:
+                index = int(index_text)
+            except ValueError:
+                await callback.answer("Папка не найдена.", show_alert=True)
+                return
+            entries = self._project_browser_entries(draft.current_path)
+            if index < 0 or index >= len(entries):
+                await callback.answer("Папка не найдена.", show_alert=True)
+                return
+            draft.current_path = draft.current_path / entries[index]
+            await self._edit_callback_message(
+                callback,
+                self._project_path_browser_text(draft),
+                self._project_path_browser_keyboard(draft),
+                parse_mode="HTML",
+            )
+            await callback.answer()
+
+        @self.router.callback_query(F.data == "project:new:path:current")
+        async def project_new_path_current(callback: CallbackQuery) -> None:
+            draft = self.pending_project_drafts.get(callback.message.chat.id)
+            if draft is None:
+                await callback.answer("Создание проекта не активно.", show_alert=True)
+                return
+            await callback.answer(str(draft.current_path))
+
+        @self.router.callback_query(F.data == "project:new:path:select")
+        async def project_new_path_select(callback: CallbackQuery) -> None:
+            draft = self.pending_project_drafts.get(callback.message.chat.id)
+            if draft is None or draft.name is None:
+                await callback.answer("Сначала введите название проекта.", show_alert=True)
+                return
+            await self._complete_project_creation(callback.message.chat.id, draft)
+            await self._edit_callback_message(
+                callback,
+                f"Проект создан: {draft.name}\nПуть: {draft.current_path}\nСледующий запуск начнет новую сессию.",
+                self._menu_keyboard(),
+            )
+            await callback.answer("Проект создан.")
 
         @self.router.callback_query(F.data.startswith("project:set:"))
         async def project_set(callback: CallbackQuery) -> None:
@@ -644,29 +709,17 @@ class TelecodexApplication:
                 await message.answer("Проект с таким названием уже существует. Введите другое название.", reply_markup=self._project_creation_keyboard())
                 return
             draft.name = user_text
+            draft.current_path = Path("/")
             await message.answer(
-                f"Название проекта: {user_text}\nТеперь введите абсолютный путь к корневой папке:",
-                reply_markup=self._project_creation_keyboard(),
+                self._project_path_browser_text(draft),
+                reply_markup=self._project_path_browser_keyboard(draft),
+                parse_mode="HTML",
             )
             return
 
-        raw_path = Path(user_text).expanduser()
-        if not raw_path.is_absolute():
-            await message.answer("Путь должен быть абсолютным. Попробуйте еще раз.", reply_markup=self._project_creation_keyboard())
-            return
-        project_path = raw_path.resolve(strict=False)
-        if not project_path.exists() or not project_path.is_dir():
-            await message.answer("Корневая папка не найдена или это не директория. Попробуйте еще раз.", reply_markup=self._project_creation_keyboard())
-            return
-
-        project_name = draft.name
-        await self.repo.save_project(project_name, str(project_path))
-        self.projects[project_name] = project_path
-        self.pending_project_drafts.pop(message.chat.id, None)
-        await self.repo.set_chat_state(message.chat.id, project_name, None)
         await message.answer(
-            f"Проект создан: {project_name}\nПуть: {project_path}\nСледующий запуск начнет новую сессию.",
-            reply_markup=self._menu_keyboard(),
+            "Путь проекта выбирается кнопками ниже.",
+            reply_markup=self._project_path_browser_keyboard(draft),
         )
 
     async def _handle_restart(self, message: Message) -> None:
@@ -754,6 +807,49 @@ class TelecodexApplication:
         builder.button(text="Назад", callback_data="project:new:cancel")
         builder.adjust(1)
         return builder.as_markup()
+
+    def _project_path_browser_keyboard(self, draft: PendingProjectDraft) -> InlineKeyboardMarkup:
+        entries = self._project_browser_entries(draft.current_path)
+        draft.entries = entries
+        builder = InlineKeyboardBuilder()
+        if draft.current_path != draft.current_path.parent:
+            builder.button(text="⬆️ ..", callback_data="project:new:path:up")
+        for index, name in enumerate(entries):
+            builder.button(text=f"📁 {name}", callback_data=f"project:new:path:open:{index}")
+        builder.button(text="✅ Выбрать", callback_data="project:new:path:select")
+        builder.button(text=str(draft.current_path), callback_data="project:new:path:current")
+        builder.button(text="Назад", callback_data="project:new:cancel")
+        sizes = []
+        if draft.current_path != draft.current_path.parent:
+            sizes.append(1)
+        sizes.extend([1] * len(entries))
+        sizes.append(2)
+        sizes.append(1)
+        builder.adjust(*sizes)
+        return builder.as_markup()
+
+    def _project_path_browser_text(self, draft: PendingProjectDraft) -> str:
+        return (
+            f"Название проекта: {html.escape(draft.name or '-')}\n"
+            "Выберите корневую папку проекта:\n"
+            f"<code>{html.escape(str(draft.current_path))}</code>"
+        )
+
+    def _project_browser_entries(self, path: Path) -> list[str]:
+        try:
+            items = [item.name for item in path.iterdir() if item.is_dir()]
+        except OSError:
+            logger.warning("Failed to list project browser directory", extra={"path": str(path)})
+            return []
+        return sorted(items, key=str.casefold)
+
+    async def _complete_project_creation(self, chat_id: int, draft: PendingProjectDraft) -> None:
+        project_name = draft.name or ""
+        project_path = draft.current_path
+        await self.repo.save_project(project_name, str(project_path))
+        self.projects[project_name] = project_path
+        self.pending_project_drafts.pop(chat_id, None)
+        await self.repo.set_chat_state(chat_id, project_name, None)
 
     def _session_keyboard(self, sessions: list[SessionRecord]) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()

@@ -432,10 +432,48 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
 async def test_handle_project_creation_input_creates_project_and_selects_it(tmp_path: Path) -> None:
     await init_db(str(tmp_path / "db.sqlite3"))
     app = _build_app(tmp_path)
-    app.pending_project_drafts[1001] = PendingProjectDraft(name="custom")
-    message = SimpleNamespace(chat=SimpleNamespace(id=1001), text=str(tmp_path), answer=AsyncMock())
+    app.pending_project_drafts[1001] = PendingProjectDraft()
+    message = SimpleNamespace(chat=SimpleNamespace(id=1001), text="custom", answer=AsyncMock())
 
     await app._handle_project_creation_input(message)
+
+    draft = app.pending_project_drafts[1001]
+
+    assert draft.name == "custom"
+    assert draft.current_path == Path("/")
+    message.answer.assert_awaited_once_with(
+        app._project_path_browser_text(draft),
+        reply_markup=app._project_path_browser_keyboard(draft),
+        parse_mode="HTML",
+    )
+
+
+def test_project_path_browser_keyboard_lists_directories_and_confirm(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "beta").mkdir()
+    draft = PendingProjectDraft(name="custom", current_path=tmp_path)
+
+    buttons = [button.text for row in app._project_path_browser_keyboard(draft).inline_keyboard for button in row]
+
+    assert buttons == [
+        "⬆️ ..",
+        "📁 alpha",
+        "📁 beta",
+        "✅ Выбрать",
+        str(tmp_path),
+        "Назад",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_complete_project_creation_persists_project_and_selects_it(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    draft = PendingProjectDraft(name="custom", current_path=tmp_path)
+    app.pending_project_drafts[1001] = draft
+
+    await app._complete_project_creation(1001, draft)
 
     state = await app.repo.get_chat_state(1001)
     saved = await app.repo.get_project("custom")
@@ -446,7 +484,3 @@ async def test_handle_project_creation_input_creates_project_and_selects_it(tmp_
     assert state.project_name == "custom"
     assert state.codex_session_id is None
     assert app.projects["custom"] == tmp_path
-    message.answer.assert_awaited_once_with(
-        f"Проект создан: custom\nПуть: {tmp_path}\nСледующий запуск начнет новую сессию.",
-        reply_markup=app._menu_keyboard(),
-    )
