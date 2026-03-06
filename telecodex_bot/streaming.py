@@ -6,6 +6,10 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 
+TELEGRAM_TEXT_LIMIT = 4096
+STATUS_HISTORY_LIMIT = 4
+
+
 class TelegramStreamEditor:
     def __init__(
         self,
@@ -75,13 +79,8 @@ class TelegramStreamEditor:
         lines = [f"{self._title} ({elapsed}s)"]
         if self._status_lines:
             lines.append("")
-            lines.append(f"Сейчас: {self._status_lines[-1]}")
-            if len(self._status_lines) > 1:
-                lines.extend(f"Недавно: {item}" for item in self._status_lines[-3:-1])
-        else:
-            lines.append("")
-            lines.append("Сейчас: жду первый осмысленный апдейт от Codex.")
-        return "\n".join(lines)
+            lines.extend(self._status_lines[-STATUS_HISTORY_LIMIT:])
+        return self._fit_text("\n".join(lines))
 
     @staticmethod
     def _normalize_status(status: str) -> str:
@@ -91,6 +90,21 @@ class TelegramStreamEditor:
         if len(normalized) > 200:
             normalized = normalized[:197].rstrip() + "..."
         return normalized
+
+    @staticmethod
+    def _fit_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> str:
+        if len(text) <= limit:
+            return text
+        return text[: limit - 3].rstrip() + "..."
+
+    @classmethod
+    def _final_text(cls, text: str) -> tuple[str, bool]:
+        body = text.strip() or "Ответ пуст."
+        if len(body) <= TELEGRAM_TEXT_LIMIT:
+            return body, False
+        suffix = "\n\n[Полный ответ отправлен файлом]"
+        truncated = cls._fit_text(body, TELEGRAM_TEXT_LIMIT - len(suffix)) + suffix
+        return truncated, True
 
     async def _safe_edit(self, text: str, reply_markup: InlineKeyboardMarkup | None) -> None:
         if self.message is None:
@@ -127,12 +141,18 @@ class TelegramStreamEditor:
             await self._refresh_task
             self._refresh_task = None
         body = (final_text or "").strip()
-        if not body:
-            body = "Ответ пуст."
+        body, was_truncated = self._final_text(body)
         async with self._edit_lock:
-            await self._safe_edit(text=body, reply_markup=reply_markup)
-        if len(full_text) >= self.send_log_threshold:
-            data = full_text.encode("utf-8", errors="replace")
+            try:
+                await self._safe_edit(text=body, reply_markup=reply_markup)
+            except TelegramBadRequest as exc:
+                error_text = str(exc)
+                if "message is too long" not in error_text and "text is too long" not in error_text:
+                    raise
+                fallback_text, was_truncated = self._final_text(body)
+                await self._safe_edit(text=fallback_text, reply_markup=reply_markup)
+        if len(full_text) >= self.send_log_threshold or was_truncated:
+            data = (full_text or final_text or "").encode("utf-8", errors="replace")
             doc = BufferedInputFile(data, filename="codex_output.log")
             caption = "Полный лог" if success else f"Полный лог ({summary})"
             await self.bot.send_document(self.chat_id, document=doc, caption=caption)
