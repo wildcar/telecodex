@@ -131,11 +131,11 @@ def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
         settings=build_settings(tmp_path),
     )
 
-    assert app._conversation_log_path(4242) == tmp_path / "history" / "coversation4242.log"
+    assert app._conversation_log_path(4242) == tmp_path / "history" / "conversation4242.log"
 
 
 def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:
-    path = tmp_path / "history" / "coversation77.log"
+    path = tmp_path / "history" / "conversation77.log"
 
     _append_conversation_log(
         path,

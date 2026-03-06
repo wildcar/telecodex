@@ -393,7 +393,7 @@ class TelecodexApplication:
         _append_log(Path(session_item.history_log_path), chunk)
 
     def _conversation_log_path(self, telegram_user_id: int) -> Path:
-        return self.settings.history_dir / f"coversation{telegram_user_id}.log"
+        return self.settings.history_dir / f"conversation{telegram_user_id}.log"
 
     async def _typing_loop(self, chat_id: int, cancel_event: asyncio.Event) -> None:
         while not cancel_event.is_set():
