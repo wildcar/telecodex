@@ -535,8 +535,7 @@ class TelecodexApplication:
                 "Как пользоваться:\n"
                 "1. Выберите проект.\n"
                 "2. Выберите сохраненную сессию или начните новую.\n"
-                "3. Отправьте задачу обычным сообщением.\n\n"
-                "Команды как fallback: /project, /sessions, /cancel, /restart."
+                "3. Отправьте задачу обычным сообщением."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
