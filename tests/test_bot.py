@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from aiogram import Bot, Dispatcher
 
-from telecodex_bot.bot import ActiveRun, TelecodexApplication, _append_conversation_log
+from telecodex_bot.bot import AccessMiddleware, ActiveRun, TelecodexApplication, _append_conversation_log
 from telecodex_bot.config import Settings
 from telecodex_bot.repository import Repository, SessionRecord
 from telecodex_bot.runner import CodexRunner
@@ -153,6 +153,36 @@ def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None
         "[stderr] вторая строка\n"
         "\n"
     )
+
+
+@pytest.mark.asyncio
+async def test_access_middleware_denies_non_admin_message() -> None:
+    middleware = AccessMiddleware({1001})
+    message = SimpleNamespace(chat=SimpleNamespace(id=2000), answer=AsyncMock())
+    handler = AsyncMock()
+
+    result = await middleware(handler, message, {})
+
+    assert result is None
+    message.answer.assert_awaited_once_with("Нет доступа")
+    handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_access_middleware_denies_non_admin_callback() -> None:
+    middleware = AccessMiddleware({1001})
+    callback = SimpleNamespace(
+        message=SimpleNamespace(chat=SimpleNamespace(id=2000), answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    handler = AsyncMock()
+
+    result = await middleware(handler, callback, {})
+
+    assert result is None
+    callback.message.answer.assert_awaited_once_with("Нет доступа")
+    callback.answer.assert_awaited_once_with()
+    handler.assert_not_awaited()
 
 
 def _build_restart_app(tmp_path: Path, restart_callback: AsyncMock | None = None) -> TelecodexApplication:

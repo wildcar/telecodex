@@ -7,9 +7,9 @@ import signal
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -30,6 +30,44 @@ class ActiveRun:
     cancel_event: asyncio.Event
 
 
+class AccessMiddleware(BaseMiddleware):
+    def __init__(self, allowed_chat_ids: set[int]) -> None:
+        self.allowed_chat_ids = allowed_chat_ids
+
+    async def __call__(
+        self,
+        handler: Callable[[Any, dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
+        data: dict[str, Any],
+    ) -> Any:
+        chat_id = self._extract_chat_id(event)
+        if chat_id in self.allowed_chat_ids:
+            return await handler(event, data)
+        await self._deny(event)
+        return None
+
+    @staticmethod
+    def _extract_chat_id(event: Message | CallbackQuery) -> int | None:
+        callback_message = getattr(event, "message", None)
+        if callback_message is not None:
+            return callback_message.chat.id
+        chat = getattr(event, "chat", None)
+        if chat is not None:
+            return chat.id
+        return None
+
+    @staticmethod
+    async def _deny(event: Message | CallbackQuery) -> None:
+        callback_message = getattr(event, "message", None)
+        if callback_message is not None:
+            await callback_message.answer("Нет доступа")
+            answer = getattr(event, "answer", None)
+            if answer is not None:
+                await answer()
+            return
+        await event.answer("Нет доступа")
+
+
 class TelecodexApplication:
     def __init__(
         self,
@@ -48,6 +86,9 @@ class TelecodexApplication:
         self.restart_callback = restart_callback or self._restart_process
         self.active_runs: dict[int, ActiveRun] = {}
         self.router = Router()
+        access_middleware = AccessMiddleware(self.settings.admin_chat_ids)
+        self.router.message.middleware(access_middleware)
+        self.router.callback_query.middleware(access_middleware)
         self._register_handlers()
         self.dispatcher.include_router(self.router)
 
