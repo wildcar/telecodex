@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import io
 import json
 import logging
@@ -176,6 +177,7 @@ class TelecodexApplication:
                 await message.answer(
                     self._sessions_title(state.project_name) + "\n" + "\n".join(lines),
                     reply_markup=self._session_keyboard(items),
+                    parse_mode="HTML",
                 )
                 return
             if arg == "new":
@@ -191,8 +193,9 @@ class TelecodexApplication:
                 return
             await self.repo.set_chat_state(message.chat.id, state.project_name, selected.codex_session_id)
             await message.answer(
-                f"Выбрана сессия: {self._session_title(selected)}",
+                f"Выбрана сессия: <code>{html.escape(self._session_title(selected))}</code>",
                 reply_markup=self._menu_keyboard(),
+                parse_mode="HTML",
             )
 
         @self.router.message(Command("session_name"))
@@ -213,7 +216,7 @@ class TelecodexApplication:
 
         @self.router.message(Command("whereami", "status"))
         async def whereami(message: Message) -> None:
-            await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard())
+            await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard(), parse_mode="HTML")
 
         @self.router.message(Command("cancel"))
         async def cancel(message: Message) -> None:
@@ -238,7 +241,12 @@ class TelecodexApplication:
 
         @self.router.callback_query(F.data == "menu:root")
         async def menu_root(callback: CallbackQuery) -> None:
-            await self._edit_callback_message(callback, await self._state_card(callback.message.chat.id), self._menu_keyboard())
+            await self._edit_callback_message(
+                callback,
+                await self._state_card(callback.message.chat.id),
+                self._menu_keyboard(),
+                parse_mode="HTML",
+            )
             await callback.answer()
 
         @self.router.callback_query(F.data == "project:list")
@@ -280,6 +288,7 @@ class TelecodexApplication:
                 callback,
                 self._sessions_title(state.project_name) + "\n" + "\n".join(lines),
                 self._session_keyboard(items),
+                parse_mode="HTML",
             )
             await callback.answer()
 
@@ -311,8 +320,9 @@ class TelecodexApplication:
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, selected.codex_session_id)
             await self._edit_callback_message(
                 callback,
-                f"Выбрана сессия: {self._session_title(selected)}",
+                f"Выбрана сессия: <code>{html.escape(self._session_title(selected))}</code>",
                 self._menu_keyboard(),
+                parse_mode="HTML",
             )
             await callback.answer("Сессия обновлена.")
 
@@ -507,7 +517,7 @@ class TelecodexApplication:
                 continue
 
     async def _send_menu(self, message: Message) -> None:
-        await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard())
+        await message.answer(await self._state_card(message.chat.id), reply_markup=self._menu_keyboard(), parse_mode="HTML")
 
     async def _handle_restart(self, message: Message) -> None:
         chat_id = message.chat.id
@@ -552,11 +562,11 @@ class TelecodexApplication:
         last_seen = self._format_timestamp(updated_at) if updated_at else "-"
         return (
             "Telecodex\n"
-            f"Проект: {project}\n"
-            f"Путь: {project_path}\n"
-            f"Сессия: {session_text}\n"
-            f"Статус: {status}\n"
-            f"Последняя активность: {last_seen}"
+            f"Проект: {html.escape(project)}\n"
+            f"Путь: {html.escape(project_path)}\n"
+            f"Сессия: {self._session_text_html(session_text)}\n"
+            f"Статус: {html.escape(status)}\n"
+            f"Последняя активность: {html.escape(last_seen)}"
         )
 
     async def _edit_callback_message(
@@ -564,10 +574,11 @@ class TelecodexApplication:
         callback: CallbackQuery,
         text: str,
         reply_markup: InlineKeyboardMarkup | None = None,
+        parse_mode: str | None = None,
     ) -> None:
         if callback.message is None:
             return
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
     def _menu_keyboard(self) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
@@ -620,7 +631,8 @@ class TelecodexApplication:
 
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
-        return session.alias or session.codex_session_id
+        updated = TelecodexApplication._format_session_stamp(session.updated_at)
+        return f"{session.project_name}|{session.codex_session_id[-13:]}|{updated}"
 
     @staticmethod
     def _sessions_title(project_name: str) -> str:
@@ -630,7 +642,7 @@ class TelecodexApplication:
         marker = "•"
         if session.codex_session_id == active_session_id:
             marker = "→"
-        return f"{marker} {self._session_title(session)} · {self._format_timestamp(session.updated_at)}"
+        return f"{marker} <code>{html.escape(self._session_title(session))}</code>"
 
     @staticmethod
     def _format_timestamp(value: str) -> str:
@@ -638,6 +650,19 @@ class TelecodexApplication:
             return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return value
+
+    @staticmethod
+    def _format_session_stamp(value: str) -> str:
+        try:
+            return datetime.fromisoformat(value).strftime("%y-%m-%d|%H:%M")
+        except ValueError:
+            return "--.--.--|--:--"
+
+    @staticmethod
+    def _session_text_html(value: str) -> str:
+        if value == "не выбрана":
+            return value
+        return f"<code>{html.escape(value)}</code>"
 
 
 def _command_arg(text: str | None) -> str:
