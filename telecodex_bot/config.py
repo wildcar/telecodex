@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
     telecodex_projects_json: str = Field(alias="TELECODEX_PROJECTS_JSON")
+    deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
+    deepgram_base_url: str = Field(default="https://api.deepgram.com/v1", alias="DEEPGRAM_BASE_URL")
+    deepgram_model: str = Field(default="nova-2", alias="DEEPGRAM_MODEL")
+    deepgram_timeout_sec: float = Field(default=30.0, alias="DEEPGRAM_TIMEOUT_SEC")
+    deepgram_retries: int = Field(default=2, alias="DEEPGRAM_RETRIES")
     codex_command: str = Field(
         default="codex exec --dangerously-bypass-approvals-and-sandbox",
         alias="CODEX_COMMAND",
@@ -33,6 +38,20 @@ class Settings(BaseSettings):
     def validate_stream_interval(cls, value: float) -> float:
         if value < 0.2:
             raise ValueError("STREAM_UPDATE_INTERVAL_SEC must be >= 0.2")
+        return value
+
+    @field_validator("deepgram_timeout_sec")
+    @classmethod
+    def validate_deepgram_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("DEEPGRAM_TIMEOUT_SEC must be > 0")
+        return value
+
+    @field_validator("deepgram_retries")
+    @classmethod
+    def validate_deepgram_retries(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("DEEPGRAM_RETRIES must be >= 0")
         return value
 
     @property

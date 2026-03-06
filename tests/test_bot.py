@@ -196,6 +196,23 @@ def _build_restart_app(tmp_path: Path, restart_callback: AsyncMock | None = None
     )
 
 
+def _build_app(
+    tmp_path: Path,
+    *,
+    deepgram=None,
+    restart_callback: AsyncMock | None = None,
+) -> TelecodexApplication:
+    return TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+        deepgram=deepgram,
+        restart_callback=restart_callback,
+    )
+
+
 @pytest.mark.asyncio
 async def test_restart_rejected_for_non_admin(tmp_path: Path) -> None:
     app = _build_restart_app(tmp_path)
@@ -235,3 +252,51 @@ async def test_restart_schedules_callback_for_admin(tmp_path: Path) -> None:
 
     message.answer.assert_awaited_once_with("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
     restart_callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_voice_message_requires_deepgram(tmp_path: Path) -> None:
+    app = _build_app(tmp_path, deepgram=None)
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=1001),
+        voice=SimpleNamespace(file_id="voice-1"),
+        answer=AsyncMock(),
+    )
+
+    await app._handle_voice_message(message)
+
+    message.answer.assert_awaited_once_with("Голосовые сообщения недоступны: не настроен DEEPGRAM_API_KEY.")
+
+
+@pytest.mark.asyncio
+async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deepgram = SimpleNamespace(transcribe_ogg_opus=AsyncMock(return_value="Расшифрованный текст"))
+    app = _build_app(tmp_path, deepgram=deepgram)
+    app._execute_prompt = AsyncMock()
+
+    async def _no_indicator(status_message, stop_event, base_text="Распознаю голосовое сообщение") -> None:
+        await stop_event.wait()
+
+    monkeypatch.setattr("telecodex_bot.bot._progress_message_indicator", _no_indicator)
+
+    status_message = SimpleNamespace(delete=AsyncMock())
+    bot = SimpleNamespace(
+        get_file=AsyncMock(return_value=SimpleNamespace(file_path="voice/file.ogg")),
+        download_file=AsyncMock(side_effect=lambda file_path, destination: destination.write(b"voice-bytes")),
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=1001),
+        voice=SimpleNamespace(file_id="voice-1"),
+        bot=bot,
+        answer=AsyncMock(side_effect=[status_message, None]),
+    )
+
+    await app._handle_voice_message(message)
+
+    bot.get_file.assert_awaited_once_with("voice-1")
+    bot.download_file.assert_awaited_once()
+    deepgram.transcribe_ogg_opus.assert_awaited_once_with(b"voice-bytes")
+    status_message.delete.assert_awaited_once()
+    assert message.answer.await_args_list[0].args == ("Распознаю голосовое сообщение ⠋",)
+    assert message.answer.await_args_list[1].args == ("Расшифрованный текст",)
+    app._execute_prompt.assert_awaited_once_with(message, "Расшифрованный текст")

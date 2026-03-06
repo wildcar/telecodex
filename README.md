@@ -1,6 +1,6 @@
 # Telecodex Bot
 
-Асинхронный Telegram-бот на Python, который запускает Codex CLI в выбранном проекте, хранит в SQLite только состояние чата и метаданные Codex-сессий и показывает в Telegram одно редактируемое сообщение со статусом выполнения и финальным ответом.
+Асинхронный Telegram-бот на Python, который запускает Codex CLI в выбранном проекте, хранит в SQLite только состояние чата и метаданные Codex-сессий, показывает в Telegram одно редактируемое сообщение со статусом выполнения и финальным ответом и поддерживает голосовой ввод через Deepgram.
 
 ## 1. Архитектура
 
@@ -14,13 +14,14 @@
 1. Пользователь выбирает проект `/project <name>`.
 2. Выбирает сохраненную сессию `/session <id>` или сбрасывает текущую через `/session new`.
 3. Отправляет задачу (`/run` или обычный текст).
-4. `CodexRunner` запускает Codex в JSONL-режиме: для новой сессии `codex exec --json <prompt>`, для продолжения `codex exec resume --json <codex_session_id> <prompt>`.
-5. `CodexRunner` запускает `CODEX_COMMAND` через `asyncio.create_subprocess_exec` в `cwd=project_path`.
-6. `stdout` читается как поток JSONL-событий; `TelegramStreamEditor` получает статусы и потоковый текст ответа отдельно.
-7. Основной стриминг строится по `item.message.delta`, а совместимые snapshot-события (`response_item`, `event_msg`) используются как fallback.
-8. Для каждого Telegram user id ведется plaintext-файл `HISTORY_DIR/conversation<TelegramUserID>.log` с timestamp, сообщением пользователя, полной командой запуска и сырым ответом Codex.
-9. По завершении бот извлекает `session id` из JSON-событий или stderr fallback и сохраняет его как единственный идентификатор сессии.
-10. То же сообщение заменяется финальным ответом; длинный ответ или технические детали при необходимости прикладываются отдельным файлом.
+4. Голосовое сообщение сначала распознается через Deepgram и затем запускается как обычная текстовая задача.
+5. `CodexRunner` запускает Codex в JSONL-режиме: для новой сессии `codex exec --json <prompt>`, для продолжения `codex exec resume --json <codex_session_id> <prompt>`.
+6. `CodexRunner` запускает `CODEX_COMMAND` через `asyncio.create_subprocess_exec` в `cwd=project_path`.
+7. `stdout` читается как поток JSONL-событий; `TelegramStreamEditor` получает статусы и потоковый текст ответа отдельно.
+8. Основной стриминг строится по `item.message.delta`, а совместимые snapshot-события (`response_item`, `event_msg`, `item.completed`) используются как fallback.
+9. Для каждого Telegram user id ведется plaintext-файл `HISTORY_DIR/conversation<TelegramUserID>.log` с timestamp, сообщением пользователя, полной командой запуска и сырым ответом Codex.
+10. По завершении бот извлекает `session id` из JSON-событий или stderr fallback и сохраняет его как единственный идентификатор сессии.
+11. То же сообщение заменяется финальным ответом; длинный ответ или технические детали при необходимости прикладываются отдельным файлом.
 
 ### Где хранится что
 - SQLite: `DB_PATH`.
@@ -87,6 +88,8 @@ cp .env.example .env
 - `TELEGRAM_BOT_TOKEN`
 - `TELECODEX_PROJECTS_JSON`
 - `CODEX_COMMAND` (по умолчанию без sandbox/approval-ограничений)
+- `DEEPGRAM_API_KEY` для голосовых сообщений
+- `DEEPGRAM_BASE_URL`, `DEEPGRAM_MODEL` при необходимости изменить STT-провайдера/модель
 - `TELECODEX_ADMIN_CHAT_IDS` (comma-separated chat id для админ-команд, например `/restart`)
 
 Инициализация service:

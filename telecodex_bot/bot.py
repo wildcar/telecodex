@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import signal
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +17,7 @@ from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardMarkup, Messa
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from telecodex_bot.config import Settings
+from telecodex_bot.deepgram import DeepgramProviderError, DeepgramService, DeepgramServiceUnavailable
 from telecodex_bot.repository import ChatState, Repository, SessionRecord
 from telecodex_bot.runner import CodexRunner
 from telecodex_bot.streaming import TelegramStreamEditor
@@ -76,6 +79,7 @@ class TelecodexApplication:
         repo: Repository,
         runner: CodexRunner,
         settings: Settings,
+        deepgram: DeepgramService | None = None,
         restart_callback: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.bot = bot
@@ -83,6 +87,7 @@ class TelecodexApplication:
         self.repo = repo
         self.runner = runner
         self.settings = settings
+        self.deepgram = deepgram
         self.restart_callback = restart_callback or self._restart_process
         self.active_runs: dict[int, ActiveRun] = {}
         self.router = Router()
@@ -229,6 +234,10 @@ class TelecodexApplication:
                 await message.answer("Использование: /run <task>")
                 return
             await self._execute_prompt(message, prompt)
+
+        @self.router.message(F.voice)
+        async def run_voice(message: Message) -> None:
+            await self._handle_voice_message(message)
 
         @self.router.message(F.text & ~F.text.startswith("/"))
         async def run_text(message: Message) -> None:
@@ -415,6 +424,61 @@ class TelecodexApplication:
             attachment_text=result.raw_output if not result.success and not assistant_text else assistant_text,
         )
 
+    async def _handle_voice_message(self, message: Message) -> None:
+        if not message.voice:
+            return
+        if self.deepgram is None:
+            await message.answer("Голосовые сообщения недоступны: не настроен DEEPGRAM_API_KEY.")
+            return
+
+        try:
+            voice_bytes = await self._download_voice_bytes(message)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        except Exception:
+            logger.exception("Voice download failed", extra={"chat_id": message.chat.id})
+            await message.answer("Ошибка при загрузке голосового сообщения.")
+            return
+
+        status_message = await message.answer("Распознаю голосовое сообщение ⠋")
+        stop_event = asyncio.Event()
+        indicator_task = asyncio.create_task(_progress_message_indicator(status_message, stop_event))
+        try:
+            transcript = await self.deepgram.transcribe_ogg_opus(voice_bytes)
+        except DeepgramServiceUnavailable:
+            await message.answer("Deepgram временно недоступен. Попробуйте позже.")
+            return
+        except DeepgramProviderError as exc:
+            await message.answer(f"Ошибка распознавания: {exc}")
+            return
+        except Exception:
+            logger.exception("Deepgram unexpected error", extra={"chat_id": message.chat.id})
+            await message.answer("Непредвиденная ошибка распознавания голоса.")
+            return
+        finally:
+            stop_event.set()
+            with suppress(Exception):
+                await indicator_task
+            with suppress(Exception):
+                await status_message.delete()
+
+        await message.answer(transcript)
+        await self._execute_prompt(message, transcript)
+
+    async def _download_voice_bytes(self, message: Message) -> bytes:
+        if not message.voice:
+            raise ValueError("Голосовое сообщение не найдено.")
+        file = await message.bot.get_file(message.voice.file_id)
+        if not file.file_path:
+            raise ValueError("Не удалось получить голосовой файл.")
+        buffer = io.BytesIO()
+        await message.bot.download_file(file.file_path, destination=buffer)
+        voice_bytes = buffer.getvalue()
+        if not voice_bytes:
+            raise ValueError("Не удалось скачать голосовое сообщение.")
+        return voice_bytes
+
     async def _get_selected_session(self, state: ChatState) -> SessionRecord | None:
         if not state.codex_session_id:
             return None
@@ -584,3 +648,20 @@ def _append_conversation_log(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fp:
         fp.write(body)
+
+
+async def _progress_message_indicator(
+    status_message: Message,
+    stop_event: asyncio.Event,
+    base_text: str = "Распознаю голосовое сообщение",
+) -> None:
+    frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    idx = 0
+    while not stop_event.is_set():
+        with suppress(Exception):
+            await status_message.edit_text(f"{base_text} {frames[idx % len(frames)]}")
+        idx += 1
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=0.45)
+        except TimeoutError:
+            continue
