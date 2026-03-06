@@ -7,7 +7,13 @@ import asyncio
 import pytest
 from aiogram import Bot, Dispatcher
 
-from telecodex_bot.bot import AccessMiddleware, ActiveRun, TelecodexApplication, _append_conversation_log
+from telecodex_bot.bot import (
+    AccessMiddleware,
+    ActiveRun,
+    TelecodexApplication,
+    _append_conversation_log,
+    _load_restart_request,
+)
 from telecodex_bot.config import Settings
 from telecodex_bot.repository import Repository, SessionRecord
 from telecodex_bot.runner import CodexRunner
@@ -252,6 +258,22 @@ async def test_restart_schedules_callback_for_admin(tmp_path: Path) -> None:
 
     message.answer.assert_awaited_once_with("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
     restart_callback.assert_awaited_once()
+    request = _load_restart_request(app._restart_marker_path())
+    assert request is not None
+    assert request.chat_id == 1001
+
+
+@pytest.mark.asyncio
+async def test_notify_restart_success_sends_message_and_clears_marker(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    marker_path = app._restart_marker_path()
+    marker_path.write_text('{"chat_id": 1001, "requested_at": "2026-03-06T14:30:00+00:00"}', encoding="utf-8")
+    app.bot.send_message = AsyncMock()
+
+    await app.notify_restart_success_if_needed()
+
+    app.bot.send_message.assert_awaited_once_with(1001, "Сервис был перезапущен успешно.")
+    assert not marker_path.exists()
 
 
 @pytest.mark.asyncio

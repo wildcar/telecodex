@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import signal
@@ -31,6 +32,12 @@ class ActiveRun:
     project_name: str
     codex_session_id: str | None
     cancel_event: asyncio.Event
+
+
+@dataclass(slots=True)
+class RestartRequest:
+    chat_id: int
+    requested_at: str
 
 
 class AccessMiddleware(BaseMiddleware):
@@ -492,6 +499,9 @@ class TelecodexApplication:
     def _conversation_log_path(self, telegram_user_id: int) -> Path:
         return self.settings.history_dir / f"conversation{telegram_user_id}.log"
 
+    def _restart_marker_path(self) -> Path:
+        return self.settings.db_path.parent / "restart_request.json"
+
     async def _typing_loop(self, chat_id: int, cancel_event: asyncio.Event) -> None:
         while not cancel_event.is_set():
             try:
@@ -515,8 +525,20 @@ class TelecodexApplication:
             await message.answer("Есть активные задачи. Сначала дождитесь завершения или выполните /cancel.")
             return
         logger.warning("Restart requested by admin", extra={"chat_id": chat_id})
+        _save_restart_request(self._restart_marker_path(), chat_id=chat_id, requested_at=datetime.now(UTC))
         await message.answer("Перезапуск сервиса запрошен. Возвращаюсь после рестарта.")
         asyncio.create_task(self.restart_callback())
+
+    async def notify_restart_success_if_needed(self) -> None:
+        request = _load_restart_request(self._restart_marker_path())
+        if request is None:
+            return
+        try:
+            await self.bot.send_message(request.chat_id, "Сервис был перезапущен успешно.")
+        except Exception:
+            logger.exception("Failed to send restart success notification", extra={"chat_id": request.chat_id})
+            return
+        _clear_restart_request(self._restart_marker_path())
 
     async def _state_card(self, chat_id: int) -> str:
         state = await self.repo.get_chat_state(chat_id)
@@ -649,6 +671,37 @@ def _append_conversation_log(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fp:
         fp.write(body)
+
+
+def _save_restart_request(path: Path, *, chat_id: int, requested_at: datetime) -> None:
+    payload = {
+        "chat_id": chat_id,
+        "requested_at": requested_at.astimezone(UTC).isoformat(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+
+
+def _load_restart_request(path: Path) -> RestartRequest | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to read restart request marker", extra={"path": str(path)})
+        return None
+    if not isinstance(payload, dict):
+        return None
+    chat_id = payload.get("chat_id")
+    requested_at = payload.get("requested_at")
+    if not isinstance(chat_id, int) or not isinstance(requested_at, str):
+        return None
+    return RestartRequest(chat_id=chat_id, requested_at=requested_at)
+
+
+def _clear_restart_request(path: Path) -> None:
+    with suppress(FileNotFoundError):
+        path.unlink()
 
 
 async def _progress_message_indicator(

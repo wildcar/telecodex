@@ -42,6 +42,7 @@ async def run() -> None:
 
     app = TelecodexApplication(bot, dispatcher, repo, runner, settings, deepgram=deepgram)
     await app.configure_bot_commands()
+    await app.notify_restart_success_if_needed()
 
     try:
         await dispatcher.start_polling(bot)
