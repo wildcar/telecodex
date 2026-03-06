@@ -302,22 +302,7 @@ class TelecodexApplication:
             if not state or not state.project_name:
                 await callback.answer("Сначала выберите проект.", show_alert=True)
                 return
-            items = await self.repo.list_sessions(state.project_name, self.settings.sessions_list_limit)
-            if not items:
-                await self._edit_callback_message(
-                    callback,
-                    f"Сессий проекта {state.project_name} пока нет.",
-                    self._new_session_keyboard(),
-                )
-                await callback.answer()
-                return
-            lines = [self._format_session_line(item, state.codex_session_id) for item in items]
-            await self._edit_callback_message(
-                callback,
-                self._sessions_title(state.project_name) + "\n" + "\n".join(lines),
-                self._session_keyboard(items),
-                parse_mode="HTML",
-            )
+            await self._show_session_list(callback, state.project_name, state.codex_session_id)
             await callback.answer()
 
         @self.router.callback_query(F.data == "session:new")
@@ -333,6 +318,57 @@ class TelecodexApplication:
                 self._menu_keyboard(),
             )
             await callback.answer("Будет создана новая сессия.")
+
+        @self.router.callback_query(F.data == "session:delete:list")
+        async def session_delete_list(callback: CallbackQuery) -> None:
+            state = await self.repo.get_chat_state(callback.message.chat.id)
+            if not state or not state.project_name:
+                await callback.answer("Сначала выберите проект.", show_alert=True)
+                return
+            await self._show_session_delete_list(callback, state.project_name)
+            await callback.answer()
+
+        @self.router.callback_query(F.data.startswith("session:delete:confirm:"))
+        async def session_delete_confirm(callback: CallbackQuery) -> None:
+            codex_session_id = callback.data.removeprefix("session:delete:confirm:")
+            state = await self.repo.get_chat_state(callback.message.chat.id)
+            if not state or not state.project_name:
+                await callback.answer("Сначала выберите проект.", show_alert=True)
+                return
+            session_item = await self.repo.get_session(codex_session_id)
+            if not session_item or session_item.project_name != state.project_name:
+                await callback.answer("Сессия не найдена.", show_alert=True)
+                return
+            await self._edit_callback_message(
+                callback,
+                "Удалить сессию?\n" f"<code>{html.escape(self._session_title(session_item))}</code>",
+                self._session_delete_confirm_keyboard(session_item.codex_session_id),
+                parse_mode="HTML",
+            )
+            await callback.answer()
+
+        @self.router.callback_query(F.data.startswith("session:delete:yes:"))
+        async def session_delete_yes(callback: CallbackQuery) -> None:
+            codex_session_id = callback.data.removeprefix("session:delete:yes:")
+            state = await self.repo.get_chat_state(callback.message.chat.id)
+            if not state or not state.project_name:
+                await callback.answer("Сначала выберите проект.", show_alert=True)
+                return
+            deleted = await self.repo.delete_session(codex_session_id)
+            if not deleted:
+                await callback.answer("Сессия не найдена.", show_alert=True)
+                return
+            await self._show_session_delete_list(callback, state.project_name)
+            await callback.answer("Сессия удалена.")
+
+        @self.router.callback_query(F.data == "session:delete:no")
+        async def session_delete_no(callback: CallbackQuery) -> None:
+            state = await self.repo.get_chat_state(callback.message.chat.id)
+            if not state or not state.project_name:
+                await callback.answer("Сначала выберите проект.", show_alert=True)
+                return
+            await self._show_session_delete_list(callback, state.project_name)
+            await callback.answer("Удаление отменено.")
 
         @self.router.callback_query(F.data.startswith("session:set:"))
         async def session_set(callback: CallbackQuery) -> None:
@@ -634,8 +670,33 @@ class TelecodexApplication:
         builder = InlineKeyboardBuilder()
         for item in sessions:
             builder.button(text=self._session_title(item), callback_data=f"session:set:{item.codex_session_id}")
+        builder.button(text="Удалить сессию", callback_data="session:delete:list")
         builder.button(text="Новая сессия", callback_data="session:new")
         builder.button(text="Назад", callback_data="menu:root")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def _session_delete_keyboard(self, sessions: list[SessionRecord]) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        for item in sessions:
+            builder.button(
+                text=f"❌ {self._session_title(item)}",
+                callback_data=f"session:delete:confirm:{item.codex_session_id}",
+            )
+        builder.button(text="Назад", callback_data="session:list")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    def _session_delete_confirm_keyboard(self, codex_session_id: str) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Да", callback_data=f"session:delete:yes:{codex_session_id}")
+        builder.button(text="Нет", callback_data="session:delete:no")
+        builder.adjust(2)
+        return builder.as_markup()
+
+    def _session_delete_empty_keyboard(self) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="Назад", callback_data="session:list")
         builder.adjust(1)
         return builder.as_markup()
 
@@ -670,11 +731,52 @@ class TelecodexApplication:
     def _sessions_title(project_name: str) -> str:
         return f"Сессии проекта {project_name}:"
 
+    @staticmethod
+    def _delete_sessions_title(project_name: str) -> str:
+        return f"Удаление сессий проекта {project_name}:"
+
     def _format_session_line(self, session: SessionRecord, active_session_id: str | None) -> str:
         marker = "•"
         if session.codex_session_id == active_session_id:
             marker = "→"
         return f"{marker} <code>{html.escape(self._session_title(session))}</code>"
+
+    async def _show_session_list(
+        self,
+        callback: CallbackQuery,
+        project_name: str,
+        active_session_id: str | None,
+    ) -> None:
+        items = await self.repo.list_sessions(project_name, self.settings.sessions_list_limit)
+        if not items:
+            await self._edit_callback_message(
+                callback,
+                f"Сессий проекта {project_name} пока нет.",
+                self._new_session_keyboard(),
+            )
+            return
+        lines = [self._format_session_line(item, active_session_id) for item in items]
+        await self._edit_callback_message(
+            callback,
+            self._sessions_title(project_name) + "\n" + "\n".join(lines),
+            self._session_keyboard(items),
+            parse_mode="HTML",
+        )
+
+    async def _show_session_delete_list(self, callback: CallbackQuery, project_name: str) -> None:
+        items = await self.repo.list_sessions(project_name, self.settings.sessions_list_limit)
+        if not items:
+            await self._edit_callback_message(
+                callback,
+                f"Сессий проекта {project_name} пока нет.",
+                self._session_delete_empty_keyboard(),
+            )
+            return
+        await self._edit_callback_message(
+            callback,
+            self._delete_sessions_title(project_name),
+            self._session_delete_keyboard(items),
+        )
 
     @staticmethod
     def _format_timestamp(value: str) -> str:

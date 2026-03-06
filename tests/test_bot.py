@@ -102,6 +102,71 @@ def test_result_keyboard_hides_continue_and_log_actions(tmp_path: Path) -> None:
     assert buttons == ["Новая сессия", "Сменить проект"]
 
 
+def test_session_keyboard_includes_delete_action(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+    session = SessionRecord(
+        codex_session_id="12345678-1234-1234-1234-1234567890ab",
+        project_name="demo",
+        project_path="/tmp/demo",
+        alias=None,
+        created_at="2026-03-05T10:00:00+00:00",
+        updated_at="2026-03-05T10:01:00+00:00",
+    )
+
+    buttons = [button.text for row in app._session_keyboard([session]).inline_keyboard for button in row]
+
+    assert buttons == ["demo-1234567890ab|26-03-05|10:01", "Удалить сессию", "Новая сессия", "Назад"]
+
+
+def test_session_delete_keyboard_marks_sessions_with_red_cross(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+    session = SessionRecord(
+        codex_session_id="12345678-1234-1234-1234-1234567890ab",
+        project_name="demo",
+        project_path="/tmp/demo",
+        alias=None,
+        created_at="2026-03-05T10:00:00+00:00",
+        updated_at="2026-03-05T10:01:00+00:00",
+    )
+
+    buttons = [button.text for row in app._session_delete_keyboard([session]).inline_keyboard for button in row]
+
+    assert buttons == ["❌ demo-1234567890ab|26-03-05|10:01", "Назад"]
+
+
+def test_session_delete_confirm_keyboard_has_yes_no_buttons(tmp_path: Path) -> None:
+    app = TelecodexApplication(
+        bot=Bot("123:ABC"),
+        dispatcher=Dispatcher(),
+        repo=Repository(tmp_path / "db.sqlite3"),
+        runner=CodexRunner("codex exec", timeout_sec=1),
+        settings=build_settings(tmp_path),
+    )
+
+    buttons = [
+        (button.text, button.callback_data)
+        for row in app._session_delete_confirm_keyboard("12345678-1234-1234-1234-1234567890ab").inline_keyboard
+        for button in row
+    ]
+
+    assert buttons == [
+        ("Да", "session:delete:yes:12345678-1234-1234-1234-1234567890ab"),
+        ("Нет", "session:delete:no"),
+    ]
+
+
 def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
     app = TelecodexApplication(
         bot=Bot("123:ABC"),

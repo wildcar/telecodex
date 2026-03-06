@@ -172,3 +172,23 @@ class Repository:
             (now, codex_session_id),
         )
         return rowcount > 0
+
+    async def delete_session(self, codex_session_id: str) -> bool:
+        now = self._now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM sessions WHERE codex_session_id = ?",
+                (codex_session_id,),
+            ).fetchone()
+            if not existing:
+                return False
+            conn.execute(
+                "UPDATE chat_state SET codex_session_id = NULL, updated_at = ? WHERE codex_session_id = ?",
+                (now, codex_session_id),
+            )
+            conn.execute(
+                "DELETE FROM sessions WHERE codex_session_id = ?",
+                (codex_session_id,),
+            )
+            conn.commit()
+        return True
