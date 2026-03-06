@@ -28,6 +28,28 @@ def test_parser_extracts_commentary_progress() -> None:
     assert events[0].text == "Смотрю FS.md"
 
 
+def test_parser_extracts_completed_agent_message() -> None:
+    parser = CodexJsonEventParser()
+
+    events = parser.parse_line(
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Готовый ответ"}}\n'
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == "assistant_snapshot"
+    assert events[0].text == "Готовый ответ"
+
+
+def test_parser_extracts_session_id_from_thread_started() -> None:
+    parser = CodexJsonEventParser()
+
+    events = parser.parse_line('{"type":"thread.started","thread_id":"12345678-1234-1234-1234-1234567890ab"}\n')
+
+    assert len(events) == 1
+    assert events[0].kind == "session"
+    assert events[0].session_id == "12345678-1234-1234-1234-1234567890ab"
+
+
 def test_parser_handles_invalid_json_gracefully() -> None:
     parser = CodexJsonEventParser()
 
@@ -128,6 +150,33 @@ async def test_run_uses_resume_with_json_mode(tmp_path: Path) -> None:
 
     assert " resume --json 12345678-1234-1234-1234-1234567890ab " in result.command
     assert result.assistant_text == "Готово"
+
+
+@pytest.mark.asyncio
+async def test_run_uses_completed_agent_message_as_final_text(tmp_path: Path) -> None:
+    script = tmp_path / "fake_codex.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"87654321-4321-4321-4321-ba0987654321\"}'\n"
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Итоговый ответ\"}}'\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    runner = CodexRunner(str(script), timeout_sec=5)
+    message_updates: list[str] = []
+
+    result = await runner.run(
+        project_path=str(tmp_path),
+        codex_session_id=None,
+        user_prompt="Что изменилось?",
+        on_progress=None,
+        on_message=_collector(message_updates),
+        cancel_event=asyncio.Event(),
+    )
+
+    assert result.assistant_text == "Итоговый ответ"
+    assert result.codex_session_id == "87654321-4321-4321-4321-ba0987654321"
+    assert message_updates == ["Итоговый ответ"]
 
 
 def _collector(items: list[str]):

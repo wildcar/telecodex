@@ -89,6 +89,9 @@ class CodexJsonEventParser:
         if event_type == "response_item":
             return events + self._parse_response_item(payload, raw_line)
 
+        if event_type == "item.completed":
+            return events + self._parse_item_completed(payload, raw_line)
+
         logger.debug("Ignoring unsupported Codex event type", extra={"event_type": event_type})
         return events or [CodexStreamEvent(kind="unexpected_event", event_type=event_type, raw_line=raw_line, payload=payload)]
 
@@ -125,6 +128,25 @@ class CodexJsonEventParser:
             summary = self._extract_text_from_content(body.get("summary"))
             if summary:
                 return [CodexStreamEvent(kind="progress", event_type=body_type, text=summary, raw_line=raw_line, payload=body)]
+        return []
+
+    def _parse_item_completed(self, payload: dict[str, Any], raw_line: str) -> list[CodexStreamEvent]:
+        item = payload.get("item")
+        if not isinstance(item, dict):
+            return []
+        item_type = str(item.get("type", "unknown"))
+        if item_type == "agent_message":
+            text = self._coerce_text(item.get("text")) or self._extract_text_from_content(item.get("content"))
+            if text:
+                return [
+                    CodexStreamEvent(
+                        kind="assistant_snapshot",
+                        event_type=item_type,
+                        text=text,
+                        raw_line=raw_line,
+                        payload=item,
+                    )
+                ]
         return []
 
     @classmethod
@@ -166,7 +188,7 @@ class CodexJsonEventParser:
     def _find_session_id(cls, payload: Any) -> str | None:
         if isinstance(payload, dict):
             for key, value in payload.items():
-                if key in {"session_id", "sessionId"} and isinstance(value, str) and SESSION_ID_RE.search(f"session id: {value}"):
+                if key in {"session_id", "sessionId", "thread_id", "threadId"} and isinstance(value, str) and SESSION_ID_RE.search(f"session id: {value}"):
                     return value
                 found = cls._find_session_id(value)
                 if found:
