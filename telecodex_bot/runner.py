@@ -6,9 +6,7 @@ import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Iterable
-
-from telecodex_bot.repository import HistoryItem, SessionRecord
+from typing import Awaitable, Callable
 
 
 @dataclass(slots=True)
@@ -20,7 +18,7 @@ class RunResult:
     output: str
     assistant_text: str
     display_text: str
-    codex_resume_ref: str | None
+    codex_session_id: str | None
     timed_out: bool = False
     cancelled: bool = False
 
@@ -30,49 +28,25 @@ class CodexRunner:
         self.command = shlex.split(codex_command)
         self.timeout_sec = timeout_sec
 
-    def _build_command(self, prompt: str, codex_resume_ref: str | None) -> list[str]:
-        if codex_resume_ref:
-            return [*self.command, "resume", codex_resume_ref, prompt]
+    def _build_command(self, prompt: str, codex_session_id: str | None) -> list[str]:
+        if codex_session_id:
+            return [*self.command, "resume", codex_session_id, prompt]
         return [*self.command, prompt]
-
-    @staticmethod
-    def _build_prompt(
-        session: SessionRecord,
-        user_prompt: str,
-        recent_history: Iterable[HistoryItem],
-    ) -> str:
-        history_lines = []
-        for item in recent_history:
-            clean_content = CodexRunner._sanitize_history_for_prompt(item.content)
-            history_lines.append(f"{item.role}: {clean_content}")
-        history_blob = "\n".join(history_lines) if history_lines else "(empty)"
-        return (
-            "Session context:\n"
-            f"session_id={session.id}\n"
-            f"project={session.project_name}\n"
-            f"history_log={session.history_log_path}\n"
-            "Recent history:\n"
-            f"{history_blob}\n\n"
-            "User task:\n"
-            f"{user_prompt}"
-        )
 
     async def run(
         self,
-        session: SessionRecord,
+        *,
+        project_path: str,
+        codex_session_id: str | None,
         user_prompt: str,
-        recent_history: Iterable[HistoryItem],
-        on_output: Callable[[str], Awaitable[None]],
         on_progress: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
-        use_native_resume = bool(session.codex_resume_ref)
-        prompt = user_prompt if use_native_resume else self._build_prompt(session, user_prompt, recent_history)
-        command = self._build_command(prompt, session.codex_resume_ref)
+        command = self._build_command(user_prompt, codex_session_id)
         env = os.environ.copy()
         proc = await asyncio.create_subprocess_exec(
             *command,
-            cwd=str(Path(session.project_path)),
+            cwd=str(Path(project_path)),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -94,7 +68,6 @@ class CodexRunner:
                     continue
                 text = f"{prefix}{line}"
                 stream_collected.append(text)
-                await on_output(text)
                 if on_progress is not None:
                     progress_text = self._extract_progress_text(text)
                     if progress_text:
@@ -123,7 +96,7 @@ class CodexRunner:
         if not assistant_text.strip():
             assistant_text = self._extract_assistant_text(raw_collected, user_prompt=user_prompt)
         display_text = assistant_text
-        codex_resume_ref = self._extract_codex_resume_ref(raw_collected)
+        extracted_session_id = self._extract_codex_session_id(raw_collected)
         success = return_code == 0 and not timed_out and not cancelled
         return RunResult(
             success=success,
@@ -133,7 +106,7 @@ class CodexRunner:
             output=output,
             assistant_text=assistant_text,
             display_text=display_text,
-            codex_resume_ref=codex_resume_ref,
+            codex_session_id=extracted_session_id or codex_session_id,
             timed_out=timed_out,
             cancelled=cancelled,
         )
@@ -176,12 +149,6 @@ class CodexRunner:
             "reasoning effort:",
             "reasoning summaries:",
             "session id:",
-            "session context:",
-            "session_id=",
-            "project=",
-            "history_log=",
-            "recent history:",
-            "user task:",
             "mcp startup:",
             "tokens used",
             "usage:",
@@ -218,7 +185,7 @@ class CodexRunner:
         return normalized
 
     @classmethod
-    def _extract_codex_resume_ref(cls, lines: list[str]) -> str | None:
+    def _extract_codex_session_id(cls, lines: list[str]) -> str | None:
         for raw in lines:
             normalized = cls._normalize_line(raw)
             match = re.match(r"session id:\s*([0-9a-fA-F-]{36})\b", normalized, flags=re.IGNORECASE)
@@ -230,15 +197,9 @@ class CodexRunner:
     def _extract_assistant_text(cls, lines: list[str], user_prompt: str = "") -> str:
         clean_lines: list[str] = []
         previous = ""
-        skip_next_user_task_line = False
         prompt_variants = cls._prompt_variants(user_prompt)
         for raw in lines:
             line = cls._normalize_line(raw.rstrip("\n"))
-            if skip_next_user_task_line and line.strip():
-                skip_next_user_task_line = False
-                continue
-            if line.strip().lower().startswith("user task:"):
-                skip_next_user_task_line = True
             if cls._is_noise_line(line):
                 continue
             normalized = line.strip()
@@ -256,73 +217,39 @@ class CodexRunner:
         return cls._deduplicate_blocks("\n".join(clean_lines).strip())
 
     @classmethod
-    def _sanitize_history_for_prompt(cls, content: str) -> str:
-        parts = content.splitlines()
-        cleaned = cls._extract_assistant_text(parts)
-        if cleaned:
-            return cls._collapse_inline(cleaned)
-        fallback = []
-        for part in parts:
-            normalized = cls._normalize_line(part)
-            if not normalized or cls._is_noise_line(normalized):
-                continue
-            fallback.append(normalized)
-        fallback_text = "\n".join(fallback).strip()
-        if fallback_text:
-            return cls._collapse_inline(fallback_text)
-        return "(filtered noisy history)"
-
-    @staticmethod
-    def _collapse_inline(text: str) -> str:
-        return re.sub(r"\s+", " ", text).strip()
+    def _extract_progress_text(cls, line: str) -> str | None:
+        normalized = cls._normalize_line(line)
+        if cls._is_noise_line(normalized):
+            return None
+        stripped = normalized.strip()
+        if not stripped:
+            return None
+        if stripped.startswith("/") or stripped.startswith("$"):
+            return None
+        if re.search(r"\b(exec|sed|cat|rg|pytest|git|python|bash)\b", stripped):
+            return None
+        if re.fullmatch(r"[\w./-]+\.[A-Za-z0-9]+", stripped):
+            return None
+        if len(stripped) > 140:
+            return None
+        return stripped
 
     @staticmethod
     def _prompt_variants(user_prompt: str) -> set[str]:
         variants = {user_prompt.strip()}
-        collapsed = re.sub(r"\s+", " ", user_prompt).strip()
-        if collapsed:
-            variants.add(collapsed)
+        variants.update(line.strip() for line in user_prompt.splitlines())
         return {item for item in variants if item}
 
     @staticmethod
     def _deduplicate_blocks(text: str) -> str:
         if not text:
             return text
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if not lines:
-            return ""
-        result: list[str] = []
-        seen: set[str] = set()
+        lines = text.splitlines()
+        deduped: list[str] = []
+        previous = None
         for line in lines:
-            if line in seen:
+            if line == previous:
                 continue
-            seen.add(line)
-            result.append(line)
-        return "\n".join(result)
-
-    @classmethod
-    def _extract_progress_text(cls, raw_line: str) -> str | None:
-        line = cls._normalize_line(raw_line)
-        normalized = re.sub(r"\s+", " ", line).strip()
-        if not normalized or cls._is_noise_line(normalized):
-            return None
-        lower = normalized.lower()
-        if lower.startswith(("exec", "succeeded in", "failed in", "error:", "usage:", "tip:")):
-            return None
-        if normalized.startswith(("/", "$", "`")):
-            return None
-        if " in /" in normalized or normalized.endswith(":") and "/" in normalized:
-            return None
-        if "::" in normalized or "\t" in normalized:
-            return None
-        if re.fullmatch(r"[\w./-]+\.[\w./-]+", normalized):
-            return None
-        if re.search(r"\b(?:sed|rg|pytest|git|python|bash|cat|ls|find|apply_patch)\b", lower):
-            return None
-        if len(normalized) > 220:
-            return None
-        if normalized.count("/") >= 2:
-            return None
-        if not re.search(r"[A-Za-zА-Яа-я]", normalized):
-            return None
-        return normalized
+            deduped.append(line)
+            previous = line
+        return "\n".join(deduped).strip()

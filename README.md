@@ -1,31 +1,29 @@
 # Telecodex Bot
 
-Асинхронный Telegram-бот на Python, который запускает Codex CLI в выбранном проекте, хранит сессии в SQLite и показывает в Telegram одно редактируемое сообщение со статусом выполнения и финальным ответом.
+Асинхронный Telegram-бот на Python, который запускает Codex CLI в выбранном проекте, хранит в SQLite только состояние чата и метаданные Codex-сессий и показывает в Telegram одно редактируемое сообщение со статусом выполнения и финальным ответом.
 
 ## 1. Архитектура
 
 ### Сущности
 - `Project` (из env): whitelist `name -> absolute path`.
-- `ChatState` (SQLite `chat_state`): текущий проект/сессия для `chat_id`.
-- `Session` (SQLite `sessions`): UUID, проект, alias, путь до лога.
-- `History` (SQLite `history`): последние сообщения `user/assistant` для подмешивания в prompt.
+- `ChatState` (SQLite `chat_state`): текущий проект и выбранный `codex_session_id` для `chat_id`.
+- `Session` (SQLite `sessions`): metadata сохраненных Codex-сессий, ключом служит сам `codex_session_id`.
 - `ActiveRun` (in-memory): активная задача в чате, `cancel_event`, `started_at`.
 
 ### Потоки
 1. Пользователь выбирает проект `/project <name>`.
-2. Выбирает/создает сессию `/session new` или `/session <id>`.
+2. Выбирает сохраненную сессию `/session <id>` или сбрасывает текущую через `/session new`.
 3. Отправляет задачу (`/run` или обычный текст).
-4. Бот формирует prompt: метаданные сессии + последние N сообщений + текущий запрос.
+4. Если сессия выбрана, `CodexRunner` запускает `codex exec resume <codex_session_id> <prompt>`, иначе стартует новую сессию обычным `codex exec <prompt>`.
 5. `CodexRunner` запускает `CODEX_COMMAND` через `asyncio.create_subprocess_exec` в `cwd=project_path`.
-6. `stdout/stderr` читаются построчно; технический вывод уходит в лог, а `TelegramStreamEditor` периодически обновляет одно сообщение короткими понятными статусами работы.
-7. Полный вывод пишется в history log файл и в БД (усеченно для контекста).
-8. Для каждого Telegram user id дополнительно ведется plaintext-файл `HISTORY_DIR/conversation<TelegramUserID>.log` с timestamp, сообщением пользователя, полной командой запуска и сырым ответом Codex.
-9. По завершении то же сообщение заменяется финальным очищенным ответом; длинный технический вывод при необходимости прикладывается файлом.
+6. `stdout/stderr` читаются построчно; в Telegram уходят только короткие понятные статусы работы через `TelegramStreamEditor`.
+7. Для каждого Telegram user id ведется plaintext-файл `HISTORY_DIR/conversation<TelegramUserID>.log` с timestamp, сообщением пользователя, полной командой запуска и сырым ответом Codex.
+8. По завершении бот извлекает из вывода `session id:` и сохраняет его как единственный идентификатор сессии.
+9. То же сообщение заменяется финальным очищенным ответом; длинный технический вывод при необходимости прикладывается файлом.
 
 ### Где хранится что
 - SQLite: `DB_PATH`.
 - Runtime-логи приложения: `LOG_DIR/telecodex_bot.log` (RotatingFileHandler).
-- Полные логи сессий Codex: `HISTORY_DIR/*.log`.
 - Пользовательские conversation-логи: `HISTORY_DIR/conversation*.log`.
 
 ## 2. Структура репозитория
@@ -68,7 +66,6 @@ requirements.txt
 - `/status`
 - `/cancel`
 - `/restart`
-- `/last`
 
 ## 4. Установка (Ubuntu 22.04/24.04)
 

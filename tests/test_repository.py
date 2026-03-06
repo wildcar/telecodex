@@ -12,25 +12,27 @@ async def test_chat_state_and_session(tmp_path: Path) -> None:
     await init_db(str(db_path))
     repo = Repository(db_path)
 
-    session = await repo.create_session("demo", "/tmp/demo", str(tmp_path / "s.log"))
-    await repo.set_chat_state(100, "demo", session.id)
+    session = await repo.save_session("12345678-1234-1234-1234-1234567890ab", "demo", "/tmp/demo")
+    await repo.set_chat_state(100, "demo", session.codex_session_id)
 
     state = await repo.get_chat_state(100)
     assert state is not None
     assert state.project_name == "demo"
-    assert state.session_id == session.id
+    assert state.codex_session_id == session.codex_session_id
 
 
 @pytest.mark.asyncio
-async def test_set_codex_resume_ref_updates_session(tmp_path: Path) -> None:
+async def test_rename_and_touch_session(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(str(db_path))
     repo = Repository(db_path)
 
-    session = await repo.create_session("demo", "/tmp/demo", str(tmp_path / "s.log"))
-    updated = await repo.set_codex_resume_ref(session.id, "12345678-1234-1234-1234-1234567890ab")
-    reloaded = await repo.get_session(session.id)
+    session = await repo.save_session("12345678-1234-1234-1234-1234567890ab", "demo", "/tmp/demo")
+    renamed = await repo.rename_session(session.codex_session_id, "Fix deploy")
+    touched = await repo.touch_session(session.codex_session_id)
+    reloaded = await repo.get_session(session.codex_session_id)
 
-    assert updated is True
+    assert renamed is True
+    assert touched is True
     assert reloaded is not None
-    assert reloaded.codex_resume_ref == "12345678-1234-1234-1234-1234567890ab"
+    assert reloaded.alias == "Fix deploy"

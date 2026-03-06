@@ -33,14 +33,12 @@ def test_session_title_prefers_alias(tmp_path: Path) -> None:
         settings=build_settings(tmp_path),
     )
     session = SessionRecord(
-        id="12345678-1234-1234-1234-1234567890ab",
+        codex_session_id="12345678-1234-1234-1234-1234567890ab",
         project_name="demo",
         project_path="/tmp/demo",
         alias="Fix deploy",
         created_at="2026-03-05T10:00:00+00:00",
         updated_at="2026-03-05T10:01:00+00:00",
-        history_log_path="/tmp/demo.log",
-        codex_resume_ref=None,
     )
 
     assert app._session_title(session) == "Fix deploy"
@@ -55,17 +53,15 @@ def test_session_line_marks_active_session(tmp_path: Path) -> None:
         settings=build_settings(tmp_path),
     )
     session = SessionRecord(
-        id="12345678-1234-1234-1234-1234567890ab",
+        codex_session_id="12345678-1234-1234-1234-1234567890ab",
         project_name="demo",
         project_path="/tmp/demo",
         alias=None,
         created_at="2026-03-05T10:00:00+00:00",
         updated_at="2026-03-05T10:01:00+00:00",
-        history_log_path="/tmp/demo.log",
-        codex_resume_ref=None,
     )
 
-    line = app._format_session_line(session, session.id)
+    line = app._format_session_line(session, session.codex_session_id)
 
     assert line.startswith("→ Сессия 12345678")
 
@@ -114,7 +110,7 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
         ("menu", "Показать меню"),
         ("projects", "Список проектов"),
         ("sessions", "Список сессий"),
-        ("session", "Выбрать или создать сессию"),
+        ("session", "Выбрать или сбросить сессию"),
         ("run", "Запустить задачу"),
         ("status", "Текущий статус"),
         ("cancel", "Остановить задачу"),
@@ -187,7 +183,7 @@ async def test_restart_rejected_when_run_active(tmp_path: Path) -> None:
     app.active_runs[2000] = ActiveRun(
         started_at=0.0,
         project_name="demo",
-        session_id="session-1",
+        codex_session_id="session-1",
         cancel_event=asyncio.Event(),
     )
     message = SimpleNamespace(chat=SimpleNamespace(id=1001), answer=AsyncMock())

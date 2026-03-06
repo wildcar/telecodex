@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     stream_tail_chars: int = Field(default=3500, alias="STREAM_TAIL_CHARS")
     stream_send_log_threshold: int = Field(default=6000, alias="STREAM_SEND_LOG_THRESHOLD")
     run_timeout_sec: int = Field(default=1800, alias="RUN_TIMEOUT_SEC")
-    session_history_items: int = Field(default=8, alias="SESSION_HISTORY_ITEMS")
     sessions_list_limit: int = Field(default=20, alias="SESSIONS_LIST_LIMIT")
     telecodex_admin_chat_ids: str = Field(default="", alias="TELECODEX_ADMIN_CHAT_IDS")
 

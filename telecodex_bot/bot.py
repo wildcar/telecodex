@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import signal
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 class ActiveRun:
     started_at: float
     project_name: str
-    session_id: str
+    codex_session_id: str | None
     cancel_event: asyncio.Event
 
 
@@ -61,7 +60,7 @@ class TelecodexApplication:
             BotCommand(command="menu", description="Показать меню"),
             BotCommand(command="projects", description="Список проектов"),
             BotCommand(command="sessions", description="Список сессий"),
-            BotCommand(command="session", description="Выбрать или создать сессию"),
+            BotCommand(command="session", description="Выбрать или сбросить сессию"),
             BotCommand(command="run", description="Запустить задачу"),
             BotCommand(command="status", description="Текущий статус"),
             BotCommand(command="cancel", description="Остановить задачу"),
@@ -91,7 +90,7 @@ class TelecodexApplication:
             if project_name not in self.settings.projects:
                 await message.answer("Неизвестный проект. Используйте кнопки или /projects.")
                 return
-            await self.repo.set_chat_state(chat_id=chat_id, project_name=project_name, session_id=None)
+            await self.repo.set_chat_state(chat_id=chat_id, project_name=project_name, codex_session_id=None)
             await message.answer(
                 f"Проект: {project_name}\nСессия сброшена.",
                 reply_markup=self._menu_keyboard(),
@@ -116,7 +115,7 @@ class TelecodexApplication:
             if not items:
                 await message.answer("Сессий пока нет.", reply_markup=self._new_session_keyboard())
                 return
-            lines = [self._format_session_line(item, state.session_id) for item in items]
+            lines = [self._format_session_line(item, state.codex_session_id) for item in items]
             await message.answer("Сессии:\n" + "\n".join(lines), reply_markup=self._session_keyboard(items))
 
         @self.router.message(Command("session"))
@@ -132,10 +131,9 @@ class TelecodexApplication:
                 await message.answer("Выберите сессию:", reply_markup=self._session_keyboard(items))
                 return
             if arg == "new":
-                created = await self._create_session(state.project_name)
-                await self.repo.set_chat_state(chat_id, state.project_name, created.id)
+                await self.repo.set_chat_state(chat_id, state.project_name, None)
                 await message.answer(
-                    f"Создана сессия: {self._session_title(created)}",
+                    "Текущая сессия сброшена. Следующий запуск создаст новую сессию Codex.",
                     reply_markup=self._menu_keyboard(),
                 )
                 return
@@ -143,7 +141,7 @@ class TelecodexApplication:
             if not selected or selected.project_name != state.project_name:
                 await message.answer("Сессия не найдена в текущем проекте.")
                 return
-            await self.repo.set_chat_state(chat_id, state.project_name, selected.id)
+            await self.repo.set_chat_state(chat_id, state.project_name, selected.codex_session_id)
             await message.answer(
                 f"Выбрана сессия: {self._session_title(selected)}",
                 reply_markup=self._menu_keyboard(),
@@ -156,10 +154,10 @@ class TelecodexApplication:
                 await message.answer("Использование: /session_name <alias>")
                 return
             state = await self.repo.get_chat_state(message.chat.id)
-            if not state or not state.session_id:
+            if not state or not state.codex_session_id:
                 await message.answer("Сначала выберите сессию.")
                 return
-            updated = await self.repo.rename_session(state.session_id, alias.strip())
+            updated = await self.repo.rename_session(state.codex_session_id, alias.strip())
             if not updated:
                 await message.answer("Не удалось обновить alias.")
                 return
@@ -229,7 +227,7 @@ class TelecodexApplication:
                 await self._edit_callback_message(callback, "Сессий пока нет.", self._new_session_keyboard())
                 await callback.answer()
                 return
-            lines = [self._format_session_line(item, state.session_id) for item in items]
+            lines = [self._format_session_line(item, state.codex_session_id) for item in items]
             await self._edit_callback_message(callback, "Сессии:\n" + "\n".join(lines), self._session_keyboard(items))
             await callback.answer()
 
@@ -239,27 +237,26 @@ class TelecodexApplication:
             if not state or not state.project_name:
                 await callback.answer("Сначала выберите проект.", show_alert=True)
                 return
-            created = await self._create_session(state.project_name)
-            await self.repo.set_chat_state(callback.message.chat.id, state.project_name, created.id)
+            await self.repo.set_chat_state(callback.message.chat.id, state.project_name, None)
             await self._edit_callback_message(
                 callback,
-                f"Новая сессия готова: {self._session_title(created)}",
+                "Текущая сессия сброшена. Следующий запуск создаст новую сессию Codex.",
                 self._menu_keyboard(),
             )
-            await callback.answer("Сессия создана.")
+            await callback.answer("Будет создана новая сессия.")
 
         @self.router.callback_query(F.data.startswith("session:set:"))
         async def session_set(callback: CallbackQuery) -> None:
-            session_id = callback.data.removeprefix("session:set:")
+            codex_session_id = callback.data.removeprefix("session:set:")
             state = await self.repo.get_chat_state(callback.message.chat.id)
             if not state or not state.project_name:
                 await callback.answer("Сначала выберите проект.", show_alert=True)
                 return
-            selected = await self.repo.get_session(session_id)
+            selected = await self.repo.get_session(codex_session_id)
             if not selected or selected.project_name != state.project_name:
                 await callback.answer("Сессия не найдена.", show_alert=True)
                 return
-            await self.repo.set_chat_state(callback.message.chat.id, state.project_name, selected.id)
+            await self.repo.set_chat_state(callback.message.chat.id, state.project_name, selected.codex_session_id)
             await self._edit_callback_message(
                 callback,
                 f"Выбрана сессия: {self._session_title(selected)}",
@@ -281,7 +278,7 @@ class TelecodexApplication:
             text = (
                 "Как пользоваться:\n"
                 "1. Выберите проект.\n"
-                "2. Выберите или создайте сессию.\n"
+                "2. Выберите сохраненную сессию или сбросьте текущую.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
                 "Команды как fallback: /project, /session, /run, /cancel, /restart."
             )
@@ -299,7 +296,7 @@ class TelecodexApplication:
             await message.answer("Сначала выберите проект через /menu.")
             return
 
-        session_item = await self._ensure_session(state)
+        current_session = await self._get_selected_session(state)
         telegram_user_id = message.from_user.id if message.from_user else chat_id
 
         stream = TelegramStreamEditor(
@@ -317,19 +314,15 @@ class TelecodexApplication:
         self.active_runs[chat_id] = ActiveRun(
             started_at=asyncio.get_running_loop().time(),
             project_name=state.project_name,
-            session_id=session_item.id,
+            codex_session_id=current_session.codex_session_id if current_session else None,
             cancel_event=cancel_event,
         )
 
-        recent_history = []
-        if not session_item.codex_resume_ref:
-            recent_history = await self.repo.get_recent_history(session_item.id, self.settings.session_history_items)
         try:
             result = await self.runner.run(
-                session=session_item,
+                project_path=str(self.settings.projects[state.project_name]),
+                codex_session_id=current_session.codex_session_id if current_session else None,
                 user_prompt=prompt,
-                recent_history=recent_history,
-                on_output=lambda chunk: self._on_output(session_item, chunk),
                 on_progress=stream.publish_status,
                 cancel_event=cancel_event,
             )
@@ -345,11 +338,20 @@ class TelecodexApplication:
             command=result.command,
             codex_output=result.raw_output,
         )
-        if result.codex_resume_ref and result.codex_resume_ref != session_item.codex_resume_ref:
-            await self.repo.set_codex_resume_ref(session_item.id, result.codex_resume_ref)
-        await self.repo.add_history(session_item.id, "user", prompt)
+
+        active_codex_session_id = current_session.codex_session_id if current_session else None
+        if result.codex_session_id:
+            saved = await self.repo.save_session(
+                result.codex_session_id,
+                state.project_name,
+                str(self.settings.projects[state.project_name]),
+            )
+            await self.repo.set_chat_state(chat_id, state.project_name, saved.codex_session_id)
+            active_codex_session_id = saved.codex_session_id
+        elif active_codex_session_id:
+            await self.repo.touch_session(active_codex_session_id)
+
         assistant_text = (result.assistant_text or result.display_text or result.output).strip()
-        await self.repo.add_history(session_item.id, "assistant", assistant_text[-10000:])
         if result.cancelled:
             summary = "cancelled"
             final_text = assistant_text or "Запуск отменен."
@@ -371,26 +373,14 @@ class TelecodexApplication:
             reply_markup=self._result_keyboard(),
         )
 
-    async def _create_session(self, project_name: str) -> SessionRecord:
-        project_path = self.settings.projects[project_name]
-        session = await self.repo.create_session(
-            project_name=project_name,
-            project_path=str(project_path),
-            history_log_path=str(self.settings.history_dir / f"{project_name}_{uuid.uuid4()}.log"),
-        )
-        return session
-
-    async def _ensure_session(self, state: ChatState) -> SessionRecord:
-        if state.session_id:
-            session = await self.repo.get_session(state.session_id)
-            if session:
-                return session
-        created = await self._create_session(state.project_name)  # type: ignore[arg-type]
-        await self.repo.set_chat_state(state.chat_id, state.project_name, created.id)
-        return created
-
-    async def _on_output(self, session_item: SessionRecord, chunk: str) -> None:
-        _append_log(Path(session_item.history_log_path), chunk)
+    async def _get_selected_session(self, state: ChatState) -> SessionRecord | None:
+        if not state.codex_session_id:
+            return None
+        session = await self.repo.get_session(state.codex_session_id)
+        if session:
+            return session
+        await self.repo.set_chat_state(state.chat_id, state.project_name, None)
+        return None
 
     def _conversation_log_path(self, telegram_user_id: int) -> Path:
         return self.settings.history_dir / f"conversation{telegram_user_id}.log"
@@ -427,8 +417,8 @@ class TelecodexApplication:
         project = state.project_name if state and state.project_name else "не выбран"
         session_text = "не выбрана"
         updated_at = state.updated_at if state else ""
-        if state and state.session_id:
-            session_item = await self.repo.get_session(state.session_id)
+        if state and state.codex_session_id:
+            session_item = await self.repo.get_session(state.codex_session_id)
             if session_item:
                 session_text = self._session_title(session_item)
                 updated_at = session_item.updated_at
@@ -476,7 +466,7 @@ class TelecodexApplication:
     def _session_keyboard(self, sessions: list[SessionRecord]) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         for item in sessions:
-            builder.button(text=self._session_title(item), callback_data=f"session:set:{item.id}")
+            builder.button(text=self._session_title(item), callback_data=f"session:set:{item.codex_session_id}")
         builder.button(text="Новая сессия", callback_data="session:new")
         builder.button(text="Назад", callback_data="menu:root")
         builder.adjust(1)
@@ -506,11 +496,11 @@ class TelecodexApplication:
 
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
-        return session.alias or f"Сессия {session.id[:8]}"
+        return session.alias or f"Сессия {session.codex_session_id[:8]}"
 
     def _format_session_line(self, session: SessionRecord, active_session_id: str | None) -> str:
         marker = "•"
-        if session.id == active_session_id:
+        if session.codex_session_id == active_session_id:
             marker = "→"
         return f"{marker} {self._session_title(session)} · {self._format_timestamp(session.updated_at)}"
 
@@ -527,12 +517,6 @@ def _command_arg(text: str | None) -> str:
         return ""
     parts = text.split(maxsplit=1)
     return parts[1] if len(parts) > 1 else ""
-
-
-def _append_log(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(text)
 
 
 def _append_conversation_log(
@@ -553,4 +537,6 @@ def _append_conversation_log(
         f"{codex_output.rstrip()}\n"
         "\n"
     )
-    _append_log(path, body)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fp:
+        fp.write(body)

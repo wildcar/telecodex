@@ -4,16 +4,12 @@ from pathlib import Path
 import pytest
 
 from telecodex_bot.runner import CodexRunner
-from telecodex_bot.repository import SessionRecord
 
 
 def test_extract_assistant_text_skips_codex_noise() -> None:
     lines = [
         "[stderr] OpenAI Codex v0.111.0 (research preview)\n",
         "[stderr] workdir: /home/codex/ort_bot\n",
-        "[stderr] Session context:\n",
-        "[stderr] session_id=abc\n",
-        "[stderr] User task:\n",
         "[stderr] Test\n",
         "[stderr] codex\n",
         "[stderr] На связи.\n",
@@ -25,16 +21,12 @@ def test_extract_assistant_text_skips_codex_noise() -> None:
 
     text = CodexRunner._extract_assistant_text(lines)
 
-    assert text == "На связи.\nГотов выполнить задачу."
+    assert text == "Test\nНа связи.\nГотов выполнить задачу."
 
 
 def test_extract_assistant_text_handles_nested_stderr_prefix() -> None:
     lines = [
         "[stderr] [stderr] workdir: /home/codex/ort_bot\n",
-        "[stderr] [stderr] Session context:\n",
-        "[stderr] [stderr] User task:\n",
-        "[stderr] [stderr] Test\n",
-        "[stderr] [stderr] codex\n",
         "[stderr] [stderr] Проверка\n",
         "[stderr] [stderr] На связи. Готов к работе.\n",
     ]
@@ -46,7 +38,6 @@ def test_extract_assistant_text_handles_nested_stderr_prefix() -> None:
 
 def test_extract_assistant_text_skips_user_prompt_echo_and_duplicates() -> None:
     lines = [
-        "[stderr] User task:\n",
         "[stderr] Так админка не мешает обычному UX.\n",
         "[stderr] Так админка не мешает обычному UX.\n",
         "[stderr] Если хотите, следующим сообщением могу уже предложить конкретно:\n",
@@ -57,33 +48,6 @@ def test_extract_assistant_text_skips_user_prompt_echo_and_duplicates() -> None:
     text = CodexRunner._extract_assistant_text(lines, user_prompt="Так админка не мешает обычному UX.")
 
     assert text == "Если хотите, следующим сообщением могу уже предложить конкретно:\n1. финальную структуру кнопок для пользователя,"
-
-
-def test_sanitize_history_for_prompt_removes_technical_lines() -> None:
-    content = (
-        "[stderr] OpenAI Codex v0.111.0 (research preview)\n"
-        "[stderr] session id: 123\n"
-        "[stderr] User task:\n"
-        "[stderr] Test\n"
-        "[stderr] codex\n"
-        "[stderr] Полезный ответ\n"
-    )
-
-    clean = CodexRunner._sanitize_history_for_prompt(content)
-
-    assert clean == "Полезный ответ"
-
-
-def test_sanitize_history_for_prompt_collapses_multiline_history() -> None:
-    content = (
-        "[stderr] Первая строка старого ответа\n"
-        "[stderr] Вторая строка старого ответа\n"
-        "[stderr] Третья строка старого ответа\n"
-    )
-
-    clean = CodexRunner._sanitize_history_for_prompt(content)
-
-    assert clean == "Первая строка старого ответа Вторая строка старого ответа Третья строка старого ответа"
 
 
 def test_extract_progress_text_keeps_human_status_only() -> None:
@@ -117,13 +81,13 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
     ]
 
 
-def test_extract_codex_resume_ref_from_raw_output() -> None:
+def test_extract_codex_session_id_from_raw_output() -> None:
     lines = [
         "[stderr] OpenAI Codex v0.111.0 (research preview)\n",
         "[stderr] session id: 12345678-1234-1234-1234-1234567890ab\n",
     ]
 
-    assert CodexRunner._extract_codex_resume_ref(lines) == "12345678-1234-1234-1234-1234567890ab"
+    assert CodexRunner._extract_codex_session_id(lines) == "12345678-1234-1234-1234-1234567890ab"
 
 
 @pytest.mark.asyncio
@@ -132,30 +96,19 @@ async def test_run_result_contains_command_and_raw_output(tmp_path: Path) -> Non
     script.write_text("#!/usr/bin/env bash\nprintf 'raw stdout\\n'\nprintf 'raw stderr\\n' >&2\n", encoding="utf-8")
     script.chmod(0o755)
     runner = CodexRunner(str(script), timeout_sec=5)
-    session = SessionRecord(
-        id="12345678-1234-1234-1234-1234567890ab",
-        project_name="demo",
-        project_path=str(tmp_path),
-        alias=None,
-        created_at="2026-03-05T10:00:00+00:00",
-        updated_at="2026-03-05T10:01:00+00:00",
-        history_log_path=str(tmp_path / "history.log"),
-        codex_resume_ref=None,
-    )
 
     result = await runner.run(
-        session=session,
+        project_path=str(tmp_path),
+        codex_session_id=None,
         user_prompt="Привет",
-        recent_history=[],
-        on_output=_noop_output,
         on_progress=None,
         cancel_event=asyncio.Event(),
     )
 
     assert result.command.startswith(str(script))
-    assert "User task:" in result.command
+    assert "Привет" in result.command
     assert result.raw_output == "[stdout] raw stdout\n[stderr] raw stderr\n"
-    assert result.codex_resume_ref is None
+    assert result.codex_session_id is None
 
 
 @pytest.mark.asyncio
@@ -164,30 +117,14 @@ async def test_run_uses_resume_ref_without_rebuilding_prompt(tmp_path: Path) -> 
     script.write_text("#!/usr/bin/env bash\nprintf 'session id: 87654321-4321-4321-4321-ba0987654321\\n' >&2\n", encoding="utf-8")
     script.chmod(0o755)
     runner = CodexRunner(str(script), timeout_sec=5)
-    session = SessionRecord(
-        id="12345678-1234-1234-1234-1234567890ab",
-        project_name="demo",
-        project_path=str(tmp_path),
-        alias=None,
-        created_at="2026-03-05T10:00:00+00:00",
-        updated_at="2026-03-05T10:01:00+00:00",
-        history_log_path=str(tmp_path / "history.log"),
-        codex_resume_ref="12345678-1234-1234-1234-1234567890ab",
-    )
 
     result = await runner.run(
-        session=session,
+        project_path=str(tmp_path),
+        codex_session_id="12345678-1234-1234-1234-1234567890ab",
         user_prompt="Продолжай",
-        recent_history=[],
-        on_output=_noop_output,
         on_progress=None,
         cancel_event=asyncio.Event(),
     )
 
     assert " resume 12345678-1234-1234-1234-1234567890ab " in result.command
-    assert "Session context:" not in result.command
-    assert result.codex_resume_ref == "87654321-4321-4321-4321-ba0987654321"
-
-
-async def _noop_output(_: str) -> None:
-    return None
+    assert result.codex_session_id == "87654321-4321-4321-4321-ba0987654321"
