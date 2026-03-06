@@ -113,7 +113,6 @@ class TelecodexApplication:
             BotCommand(command="menu", description="Показать меню"),
             BotCommand(command="projects", description="Список проектов"),
             BotCommand(command="sessions", description="Список сессий"),
-            BotCommand(command="session", description="Выбрать или начать новую сессию"),
             BotCommand(command="status", description="Текущий статус"),
             BotCommand(command="cancel", description="Остановить задачу"),
             BotCommand(command="restart", description="Перезапустить сервис"),
@@ -160,31 +159,27 @@ class TelecodexApplication:
 
         @self.router.message(Command("sessions"))
         async def sessions(message: Message) -> None:
+            arg = _command_arg(message.text).strip()
             state = await self.repo.get_chat_state(message.chat.id)
-            if not state or not state.project_name:
-                await message.answer("Сначала выберите проект через /menu.")
-                return
-            items = await self.repo.list_sessions(state.project_name, self.settings.sessions_list_limit)
-            if not items:
-                await message.answer("Сессий пока нет.", reply_markup=self._new_session_keyboard())
-                return
-            lines = [self._format_session_line(item, state.codex_session_id) for item in items]
-            await message.answer("Сессии:\n" + "\n".join(lines), reply_markup=self._session_keyboard(items))
-
-        @self.router.message(Command("session"))
-        async def session(message: Message) -> None:
-            chat_id = message.chat.id
-            arg = _command_arg(message.text)
-            state = await self.repo.get_chat_state(chat_id)
             if not state or not state.project_name:
                 await message.answer("Сначала выберите проект через /menu.")
                 return
             if not arg:
                 items = await self.repo.list_sessions(state.project_name, self.settings.sessions_list_limit)
-                await message.answer("Выберите сессию:", reply_markup=self._session_keyboard(items))
+                if not items:
+                    await message.answer(
+                        f"Сессий проекта {state.project_name} пока нет.",
+                        reply_markup=self._new_session_keyboard(),
+                    )
+                    return
+                lines = [self._format_session_line(item, state.codex_session_id) for item in items]
+                await message.answer(
+                    self._sessions_title(state.project_name) + "\n" + "\n".join(lines),
+                    reply_markup=self._session_keyboard(items),
+                )
                 return
             if arg == "new":
-                await self.repo.set_chat_state(chat_id, state.project_name, None)
+                await self.repo.set_chat_state(message.chat.id, state.project_name, None)
                 await message.answer(
                     "Следующий запуск начнет новую сессию Codex.",
                     reply_markup=self._menu_keyboard(),
@@ -194,7 +189,7 @@ class TelecodexApplication:
             if not selected or selected.project_name != state.project_name:
                 await message.answer("Сессия не найдена в текущем проекте.")
                 return
-            await self.repo.set_chat_state(chat_id, state.project_name, selected.codex_session_id)
+            await self.repo.set_chat_state(message.chat.id, state.project_name, selected.codex_session_id)
             await message.answer(
                 f"Выбрана сессия: {self._session_title(selected)}",
                 reply_markup=self._menu_keyboard(),
@@ -260,7 +255,7 @@ class TelecodexApplication:
             await self.repo.set_chat_state(callback.message.chat.id, project_name, None)
             await self._edit_callback_message(
                 callback,
-                f"Проект переключен на {project_name}.\nСессия сброшена.",
+                f"Проект переключен на {project_name}.\nСледующий запуск начнет новую сессию.",
                 self._menu_keyboard(),
             )
             await callback.answer("Проект обновлен.")
@@ -273,11 +268,19 @@ class TelecodexApplication:
                 return
             items = await self.repo.list_sessions(state.project_name, self.settings.sessions_list_limit)
             if not items:
-                await self._edit_callback_message(callback, "Сессий пока нет.", self._new_session_keyboard())
+                await self._edit_callback_message(
+                    callback,
+                    f"Сессий проекта {state.project_name} пока нет.",
+                    self._new_session_keyboard(),
+                )
                 await callback.answer()
                 return
             lines = [self._format_session_line(item, state.codex_session_id) for item in items]
-            await self._edit_callback_message(callback, "Сессии:\n" + "\n".join(lines), self._session_keyboard(items))
+            await self._edit_callback_message(
+                callback,
+                self._sessions_title(state.project_name) + "\n" + "\n".join(lines),
+                self._session_keyboard(items),
+            )
             await callback.answer()
 
         @self.router.callback_query(F.data == "session:new")
@@ -329,7 +332,7 @@ class TelecodexApplication:
                 "1. Выберите проект.\n"
                 "2. Выберите сохраненную сессию или начните новую.\n"
                 "3. Отправьте задачу обычным сообщением.\n\n"
-                "Команды как fallback: /project, /session, /cancel, /restart."
+                "Команды как fallback: /project, /sessions, /cancel, /restart."
             )
             await self._edit_callback_message(callback, text, self._menu_keyboard())
             await callback.answer()
@@ -618,6 +621,10 @@ class TelecodexApplication:
     @staticmethod
     def _session_title(session: SessionRecord) -> str:
         return session.alias or session.codex_session_id
+
+    @staticmethod
+    def _sessions_title(project_name: str) -> str:
+        return f"Сессии проекта {project_name}:"
 
     def _format_session_line(self, session: SessionRecord, active_session_id: str | None) -> str:
         marker = "•"

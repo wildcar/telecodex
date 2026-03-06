@@ -116,7 +116,6 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
         ("menu", "Показать меню"),
         ("projects", "Список проектов"),
         ("sessions", "Список сессий"),
-        ("session", "Выбрать или начать новую сессию"),
         ("status", "Текущий статус"),
         ("cancel", "Остановить задачу"),
         ("restart", "Перезапустить сервис"),
