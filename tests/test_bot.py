@@ -218,6 +218,7 @@ def test_bot_commands_include_main_menu_entries(tmp_path: Path) -> None:
         ("menu", "Show menu"),
         ("projects", "List projects"),
         ("sessions", "List sessions"),
+        ("session_id", "Show current session ID"),
         ("status", "Current status"),
         ("cancel", "Stop task"),
         ("restart", "Restart service"),
@@ -387,6 +388,34 @@ async def test_restart_schedules_callback_for_admin(tmp_path: Path) -> None:
     request = _load_restart_request(app._restart_marker_path())
     assert request is not None
     assert request.chat_id == 1001
+
+
+@pytest.mark.asyncio
+async def test_handle_session_id_requires_selected_session(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    message = SimpleNamespace(chat=SimpleNamespace(id=1001), answer=AsyncMock())
+
+    await app._handle_session_id(message)
+
+    message.answer.assert_awaited_once_with("No session selected.")
+
+
+@pytest.mark.asyncio
+async def test_handle_session_id_returns_selected_session(tmp_path: Path) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    await app.repo.save_project("demo", "/tmp/demo")
+    await app.repo.save_session("11111111-1111-1111-1111-111111111111", "demo", "/tmp/demo")
+    await app.repo.set_chat_state(1001, "demo", "11111111-1111-1111-1111-111111111111")
+    message = SimpleNamespace(chat=SimpleNamespace(id=1001), answer=AsyncMock())
+
+    await app._handle_session_id(message)
+
+    message.answer.assert_awaited_once_with(
+        "Current session ID:\n<code>11111111-1111-1111-1111-111111111111</code>",
+        parse_mode="HTML",
+    )
 
 
 @pytest.mark.asyncio

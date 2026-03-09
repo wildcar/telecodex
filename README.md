@@ -17,6 +17,7 @@ A Telegram bot for working with Codex CLI inside a selected project. The bot man
 - `/projects`
 - `/project <name>`
 - `/sessions`
+- `/session_id`
 - `/sessions <id>`
 - `/sessions new`
 - `/session_name <alias>`

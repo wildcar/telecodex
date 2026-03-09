@@ -57,6 +57,7 @@ B) Project management
 
 C) Session management
 - `/sessions` shows saved sessions for the current project and also accepts `new` or `codex_session_id` as text input.
+- `/session_id` returns the raw `codex_session_id` of the currently selected session in the chat.
 - `/session_name <alias>` sets an alias for the current session.
 - `/whereami` shows the same state card as `/menu`.
 - The `Session` button opens recent sessions for the current project.
@@ -64,6 +65,7 @@ C) Session management
 - The session picker includes a `Delete session` action.
 - Deleting the active session clears `codex_session_id` in `chat_state`.
 - Session labels shown to the user use the format `projecttail|YY-MM-DD|HH:MM`, where `tail` is the trailing segment of `codex_session_id` including the leading `-`, and the date/time comes from `updated_at`.
+- If no session is currently selected, `/session_id` returns a clear user-facing message instead of an empty value.
 
 D) Task execution
 - Any non-command text message is treated as a Codex task.

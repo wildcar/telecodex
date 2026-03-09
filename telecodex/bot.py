@@ -127,6 +127,7 @@ class TelecodexApplication:
             BotCommand(command="menu", description="Show menu"),
             BotCommand(command="projects", description="List projects"),
             BotCommand(command="sessions", description="List sessions"),
+            BotCommand(command="session_id", description="Show current session ID"),
             BotCommand(command="status", description="Current status"),
             BotCommand(command="cancel", description="Stop task"),
             BotCommand(command="restart", description="Restart service"),
@@ -237,6 +238,11 @@ class TelecodexApplication:
                 await message.answer("Could not update alias.")
                 return
             await message.answer("Session name updated.", reply_markup=self._menu_keyboard())
+
+        @self.router.message(Command("session_id"))
+        async def session_id(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
+            await self._handle_session_id(message)
 
         @self.router.message(Command("whereami", "status"))
         async def whereami(message: Message) -> None:
@@ -756,6 +762,17 @@ class TelecodexApplication:
         _save_restart_request(self._restart_marker_path(), chat_id=chat_id, requested_at=datetime.now(UTC))
         await message.answer("Service restart requested.")
         asyncio.create_task(self.restart_callback())
+
+    async def _handle_session_id(self, message: Message) -> None:
+        state = await self.repo.get_chat_state(message.chat.id)
+        if not state or not state.codex_session_id:
+            await message.answer("No session selected.")
+            return
+        session = await self._get_selected_session(state)
+        if session is None:
+            await message.answer("No session selected.")
+            return
+        await message.answer(f"Current session ID:\n<code>{html.escape(session.codex_session_id)}</code>", parse_mode="HTML")
 
     async def notify_restart_success_if_needed(self) -> None:
         request = _load_restart_request(self._restart_marker_path())
