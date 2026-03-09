@@ -125,5 +125,6 @@ Technical requirements
 - The Python package directory is `telecodex/`, and the main entrypoint is `python -m telecodex.main`.
 - Documentation, source-code comments, and user-facing UI text are maintained in English.
 - Regular commit flow: `git add <files> && git commit -m "<message>" && git push origin main`.
+- Commits in this repository must use the git author identity `wildcar <wildcar@users.noreply.github.com>`.
 - `README.md` should describe the current bot behavior and operations in a short practical form.
 - Tests run locally with `cd /home/codex/telecodex_bot && ./.venv/bin/pytest -q`.
