@@ -64,7 +64,7 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
 
     command = runner._build_command("line one\nline two", None)
 
-    assert command == ["codex", "exec", "--model", "gpt-5", "--json", "line one\nline two"]
+    assert command == ["codex", "exec", "--model", "gpt-5", "--json", "--", "line one\nline two"]
 
 
 def test_build_command_uses_native_resume_when_ref_exists() -> None:
@@ -80,7 +80,32 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
         "resume",
         "--json",
         "12345678-1234-1234-1234-1234567890ab",
+        "--",
         "continue",
+    ]
+
+
+def test_build_command_guards_prompt_that_starts_with_dash() -> None:
+    runner = CodexRunner("codex exec", timeout_sec=1)
+
+    command = runner._build_command("- bullet", None)
+
+    assert command == ["codex", "exec", "--json", "--", "- bullet"]
+
+
+def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
+    runner = CodexRunner("codex exec", timeout_sec=1)
+
+    command = runner._build_command("- bullet", "12345678-1234-1234-1234-1234567890ab")
+
+    assert command == [
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "12345678-1234-1234-1234-1234567890ab",
+        "--",
+        "- bullet",
     ]
 
 
@@ -148,7 +173,7 @@ async def test_run_uses_resume_with_json_mode(tmp_path: Path) -> None:
         cancel_event=asyncio.Event(),
     )
 
-    assert " resume --json 12345678-1234-1234-1234-1234567890ab " in result.command
+    assert " resume --json 12345678-1234-1234-1234-1234567890ab -- Continue" in result.command
     assert result.assistant_text == "Done"
 
 

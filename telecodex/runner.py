@@ -246,10 +246,10 @@ class CodexRunner:
             command = [*base, "resume"]
             if "--json" not in command:
                 command.append("--json")
-            return [*command, codex_session_id, prompt]
+            return [*command, codex_session_id, "--", prompt]
         if "--json" not in base:
             base.append("--json")
-        return [*base, prompt]
+        return [*base, "--", prompt]
 
     async def run(
         self,

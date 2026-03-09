@@ -103,8 +103,9 @@ Logs and history
 Codex CLI integration
 - The bot runs `CODEX_COMMAND` with the prompt appended.
 - The Codex subprocess is started with `cwd = project_path`.
-- New tasks use `codex exec --json <prompt>`.
-- Continuing a conversation uses `codex exec resume --json <codex_session_id> <prompt>`.
+- New tasks use `codex exec --json -- <prompt>`.
+- Continuing a conversation uses `codex exec resume --json <codex_session_id> -- <prompt>`.
+- The runner must pass prompt text after `--` so prompts that begin with `-` are never parsed as CLI flags.
 - The primary source of streamed reply text is `item.message.delta`.
 - Compatible fallback events are also supported, including `response_item`, `event_msg`, and `item.completed` with final text.
 - Session/thread identifiers returned by Codex CLI are used as the source of truth for `codex_session_id`.
