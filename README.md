@@ -58,10 +58,10 @@ cd /home/codex/telecodex_bot
 ## Systemd
 
 ```bash
-sudo cp systemd/telecodexbot.service /etc/systemd/system/telecodexbot.service
+sudo cp systemd/telecodex.service /etc/systemd/system/telecodex.service
 sudo systemctl daemon-reload
-sudo systemctl enable telecodexbot
-sudo systemctl start telecodexbot
+sudo systemctl enable telecodex
+sudo systemctl start telecodex
 ```
 
 ## Logs

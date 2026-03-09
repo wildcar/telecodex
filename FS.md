@@ -123,6 +123,7 @@ Technical requirements
 - Configuration is loaded via `.env` and `pydantic-settings`.
 - The application version is stored in `telecodex/__init__.py`; the current target release is `v0.5`, and release tags use the form `v<version>`.
 - The Python package directory is `telecodex/`, and the main entrypoint is `python -m telecodex.main`.
+- The systemd service name is `telecodex`.
 - Documentation, source-code comments, and user-facing UI text are maintained in English.
 - Regular commit flow: `git add <files> && git commit -m "<message>" && git push origin main`.
 - Commits in this repository must use the git author identity `wildcar <wildcar@users.noreply.github.com>`.
