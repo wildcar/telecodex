@@ -5,13 +5,13 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from telecodex_bot.bot import TelecodexApplication
-from telecodex_bot.config import get_settings
-from telecodex_bot.deepgram import DeepgramService, DeepgramServiceUnavailable
-from telecodex_bot.db import init_db
-from telecodex_bot.logging_config import configure_logging
-from telecodex_bot.repository import Repository
-from telecodex_bot.runner import CodexRunner
+from telecodex.bot import TelecodexApplication
+from telecodex.config import get_settings
+from telecodex.deepgram import DeepgramService, DeepgramServiceUnavailable
+from telecodex.db import init_db
+from telecodex.logging_config import configure_logging
+from telecodex.repository import Repository
+from telecodex.runner import CodexRunner
 
 logger = logging.getLogger(__name__)
 

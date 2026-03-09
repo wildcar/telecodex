@@ -18,11 +18,11 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from telecodex_bot.config import Settings
-from telecodex_bot.deepgram import DeepgramProviderError, DeepgramService, DeepgramServiceUnavailable
-from telecodex_bot.repository import ChatState, Repository, SessionRecord
-from telecodex_bot.runner import CodexRunner
-from telecodex_bot.streaming import TelegramStreamEditor
+from telecodex.config import Settings
+from telecodex.deepgram import DeepgramProviderError, DeepgramService, DeepgramServiceUnavailable
+from telecodex.repository import ChatState, Repository, SessionRecord
+from telecodex.runner import CodexRunner
+from telecodex.streaming import TelegramStreamEditor
 
 logger = logging.getLogger(__name__)
 

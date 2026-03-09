@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from aiogram import Bot, Dispatcher
 
-from telecodex_bot.bot import (
+from telecodex.bot import (
     AccessMiddleware,
     ActiveRun,
     PendingProjectDraft,
@@ -15,10 +15,10 @@ from telecodex_bot.bot import (
     _append_conversation_log,
     _load_restart_request,
 )
-from telecodex_bot.config import Settings
-from telecodex_bot.db import init_db
-from telecodex_bot.repository import Repository, SessionRecord
-from telecodex_bot.runner import CodexRunner
+from telecodex.config import Settings
+from telecodex.db import init_db
+from telecodex.repository import Repository, SessionRecord
+from telecodex.runner import CodexRunner
 
 
 def build_settings(tmp_path: Path) -> Settings:
@@ -425,7 +425,7 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
     async def _no_indicator(status_message, stop_event, base_text="Transcribing voice message") -> None:
         await stop_event.wait()
 
-    monkeypatch.setattr("telecodex_bot.bot._progress_message_indicator", _no_indicator)
+    monkeypatch.setattr("telecodex.bot._progress_message_indicator", _no_indicator)
 
     status_message = SimpleNamespace(delete=AsyncMock())
     bot = SimpleNamespace(

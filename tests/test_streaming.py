@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from aiogram.types import InlineKeyboardMarkup
 
-from telecodex_bot.streaming import TelegramStreamEditor
+from telecodex.streaming import TelegramStreamEditor
 
 
 def test_tail_keeps_right_part() -> None:

@@ -1,4 +1,4 @@
-from telecodex_bot.config import Settings
+from telecodex.config import Settings
 
 
 def test_admin_chat_ids_parse() -> None:

@@ -121,7 +121,8 @@ Technical requirements
 - Subprocesses are created via `asyncio.create_subprocess_exec`.
 - Logging uses `logging` and `RotatingFileHandler`.
 - Configuration is loaded via `.env` and `pydantic-settings`.
-- The application version is stored in `telecodex_bot/__init__.py`; the current target release is `v0.5`, and release tags use the form `v<version>`.
+- The application version is stored in `telecodex/__init__.py`; the current target release is `v0.5`, and release tags use the form `v<version>`.
+- The Python package directory is `telecodex/`, and the main entrypoint is `python -m telecodex.main`.
 - Documentation, source-code comments, and user-facing UI text are maintained in English.
 - Regular commit flow: `git add <files> && git commit -m "<message>" && git push origin main`.
 - `README.md` should describe the current bot behavior and operations in a short practical form.

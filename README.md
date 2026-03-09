@@ -52,7 +52,7 @@ After filling `.env`, run locally:
 
 ```bash
 cd /home/codex/telecodex_bot
-./.venv/bin/python -m telecodex_bot.main
+./.venv/bin/python -m telecodex.main
 ```
 
 ## Systemd

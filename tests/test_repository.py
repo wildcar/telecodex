@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from telecodex_bot.db import init_db
-from telecodex_bot.repository import Repository
+from telecodex.db import init_db
+from telecodex.repository import Repository
 
 
 @pytest.mark.asyncio

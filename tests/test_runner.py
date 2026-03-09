@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from telecodex_bot.runner import CodexJsonEventParser, CodexRunner
+from telecodex.runner import CodexJsonEventParser, CodexRunner
 
 
 def test_parser_extracts_item_message_delta() -> None:
