@@ -150,3 +150,79 @@ def test_finish_truncates_too_long_final_text_and_sends_document() -> None:
     assert len(final_text) <= 4096
     assert final_text.endswith("[Full response sent as file]")
     assert document_sent is True
+
+
+def test_refresh_recovers_with_new_status_message_after_edit_timeout() -> None:
+    class DummyBot:
+        def __init__(self) -> None:
+            self.sent_messages: list[str] = []
+
+        async def send_message(self, chat_id: int, text: str, parse_mode=None, reply_markup=None) -> SimpleNamespace:
+            self.sent_messages.append(text)
+            return SimpleNamespace(message_id=len(self.sent_messages))
+
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
+            await asyncio.sleep(0.05)
+
+        async def send_document(self, chat_id: int, document, caption: str) -> None:
+            return None
+
+    async def run() -> list[str]:
+        bot = DummyBot()
+        editor = TelegramStreamEditor(
+            bot=bot,
+            chat_id=1,
+            interval_sec=0.01,
+            tail_chars=50,
+            send_log_threshold=1000,
+            api_timeout_sec=0.01,
+            stalled_delivery_sec=0.0,
+            finalize_wait_sec=0.02,
+        )
+        await editor.start("Telecodex thinking")
+        await editor.publish_status("Still running")
+        await asyncio.sleep(0.06)
+        editor._stop_event.set()
+        if editor._refresh_task is not None:
+            await asyncio.wait_for(editor._refresh_task, timeout=0.05)
+        return bot.sent_messages
+
+    sent_messages = asyncio.run(run())
+
+    assert len(sent_messages) >= 2
+    assert any("Still running" in item for item in sent_messages[1:])
+
+
+def test_finish_sends_new_final_message_when_edit_times_out() -> None:
+    class DummyBot:
+        def __init__(self) -> None:
+            self.sent_messages: list[str] = []
+
+        async def send_message(self, chat_id: int, text: str, parse_mode=None, reply_markup=None) -> SimpleNamespace:
+            self.sent_messages.append(text)
+            return SimpleNamespace(message_id=len(self.sent_messages))
+
+        async def edit_message_text(self, *, chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode=None) -> None:
+            raise TimeoutError("edit timeout")
+
+        async def send_document(self, chat_id: int, document, caption: str) -> None:
+            return None
+
+    async def run() -> list[str]:
+        bot = DummyBot()
+        editor = TelegramStreamEditor(
+            bot=bot,
+            chat_id=1,
+            interval_sec=1.0,
+            tail_chars=50,
+            send_log_threshold=1000,
+            api_timeout_sec=0.01,
+            finalize_wait_sec=0.02,
+        )
+        await editor.start("Telecodex thinking")
+        await editor.finish(True, "done", final_text="Final reply", full_text="Final reply")
+        return bot.sent_messages
+
+    sent_messages = asyncio.run(run())
+
+    assert sent_messages == ["<b>🔵 Telecodex thinking ⠋ (0s)</b>", "Final reply"]

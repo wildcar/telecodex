@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
+import logging
 import re
 from dataclasses import dataclass
 
@@ -13,6 +15,11 @@ TELEGRAM_TEXT_LIMIT = 4096
 STATUS_HISTORY_LIMIT = 4
 CODE_BLOCK_RE = re.compile(r"```[^\n`]*\n?(.*?)```", re.DOTALL)
 SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+DEFAULT_TELEGRAM_API_TIMEOUT_SEC = 15.0
+DEFAULT_STALLED_DELIVERY_SEC = 30.0
+DEFAULT_FINALIZE_WAIT_SEC = 5.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -30,12 +37,19 @@ class TelegramStreamEditor:
         interval_sec: float,
         tail_chars: int,
         send_log_threshold: int,
+        *,
+        api_timeout_sec: float = DEFAULT_TELEGRAM_API_TIMEOUT_SEC,
+        stalled_delivery_sec: float = DEFAULT_STALLED_DELIVERY_SEC,
+        finalize_wait_sec: float = DEFAULT_FINALIZE_WAIT_SEC,
     ) -> None:
         self.bot = bot
         self.chat_id = chat_id
         self.interval_sec = interval_sec
         self.tail_chars = tail_chars
         self.send_log_threshold = send_log_threshold
+        self.api_timeout_sec = api_timeout_sec
+        self.stalled_delivery_sec = stalled_delivery_sec
+        self.finalize_wait_sec = finalize_wait_sec
         self.message: Message | None = None
         self._title = ""
         self._last_rendered_text = ""
@@ -47,6 +61,7 @@ class TelegramStreamEditor:
         self._edit_lock = asyncio.Lock()
         self._started_at = 0.0
         self._spinner_index = 0
+        self._last_delivery_at = 0.0
 
     async def start(self, title: str) -> None:
         self._title = title
@@ -54,9 +69,7 @@ class TelegramStreamEditor:
         self._stop_event = asyncio.Event()
         self._spinner_index = 0
         rendered = self._render_current_text()
-        self.message = await self.bot.send_message(self.chat_id, rendered.text, parse_mode=rendered.parse_mode)
-        self._last_rendered_text = rendered.text
-        self._last_parse_mode = rendered.parse_mode
+        await self._safe_send(rendered=rendered, reply_markup=None)
         self._refresh_task = asyncio.create_task(self._refresh_loop())
 
     async def publish_status(self, status: str) -> None:
@@ -86,7 +99,11 @@ class TelegramStreamEditor:
 
     async def _refresh_loop(self) -> None:
         while not self._stop_event.is_set():
-            await self._render_progress()
+            try:
+                await self._render_progress()
+            except Exception:
+                logger.warning("Telegram stream refresh failed for chat_id=%s", self.chat_id, exc_info=True)
+                await self._recover_stalled_message()
             self._spinner_index = (self._spinner_index + 1) % len(SPINNER_FRAMES)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_sec)
@@ -200,35 +217,68 @@ class TelegramStreamEditor:
         if self.message is None:
             return
         try:
-            await self.bot.edit_message_text(
-                chat_id=self.chat_id,
-                message_id=self.message.message_id,
-                text=rendered.text,
-                reply_markup=reply_markup,
-                parse_mode=rendered.parse_mode,
+            await asyncio.wait_for(
+                self.bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.message.message_id,
+                    text=rendered.text,
+                    reply_markup=reply_markup,
+                    parse_mode=rendered.parse_mode,
+                ),
+                timeout=self.api_timeout_sec,
             )
             self._last_rendered_text = rendered.text
             self._last_parse_mode = rendered.parse_mode
+            self._last_delivery_at = asyncio.get_running_loop().time()
         except TelegramBadRequest as exc:
             error_text = str(exc)
             if "message is not modified" in error_text:
                 self._last_rendered_text = rendered.text
                 self._last_parse_mode = rendered.parse_mode
+                self._last_delivery_at = asyncio.get_running_loop().time()
                 return
             if "message to edit not found" in error_text:
                 return
             if rendered.parse_mode and "can't parse entities" in error_text and rendered.fallback_text is not None:
                 fallback = RenderedTelegramText(rendered.fallback_text)
-                await self.bot.edit_message_text(
-                    chat_id=self.chat_id,
-                    message_id=self.message.message_id,
-                    text=fallback.text,
-                    reply_markup=reply_markup,
+                await asyncio.wait_for(
+                    self.bot.edit_message_text(
+                        chat_id=self.chat_id,
+                        message_id=self.message.message_id,
+                        text=fallback.text,
+                        reply_markup=reply_markup,
+                    ),
+                    timeout=self.api_timeout_sec,
                 )
                 self._last_rendered_text = fallback.text
                 self._last_parse_mode = None
+                self._last_delivery_at = asyncio.get_running_loop().time()
                 return
             raise
+
+    async def _safe_send(self, rendered: RenderedTelegramText, reply_markup: InlineKeyboardMarkup | None) -> None:
+        kwargs: dict[str, object] = {"parse_mode": rendered.parse_mode}
+        if reply_markup is not None:
+            kwargs["reply_markup"] = reply_markup
+        self.message = await asyncio.wait_for(
+            self.bot.send_message(self.chat_id, rendered.text, **kwargs),
+            timeout=self.api_timeout_sec,
+        )
+        self._last_rendered_text = rendered.text
+        self._last_parse_mode = rendered.parse_mode
+        self._last_delivery_at = asyncio.get_running_loop().time()
+
+    async def _recover_stalled_message(self) -> None:
+        if self.message is None:
+            return
+        now = asyncio.get_running_loop().time()
+        if self._last_delivery_at and now - self._last_delivery_at < self.stalled_delivery_sec:
+            return
+        rendered = self._render_current_text()
+        try:
+            await self._safe_send(rendered=rendered, reply_markup=None)
+        except Exception:
+            logger.warning("Telegram stream recovery send failed for chat_id=%s", self.chat_id, exc_info=True)
 
     async def finish(
         self,
@@ -243,19 +293,28 @@ class TelegramStreamEditor:
             return full_text
         self._stop_event.set()
         if self._refresh_task is not None:
-            await self._refresh_task
+            try:
+                await asyncio.wait_for(self._refresh_task, timeout=self.finalize_wait_sec)
+            except asyncio.TimeoutError:
+                self._refresh_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._refresh_task
             self._refresh_task = None
         body = (final_text or self._answer_text or "").strip()
         rendered, was_truncated = self._render_final_text(body)
         async with self._edit_lock:
             try:
-                await self._safe_edit(rendered=rendered, reply_markup=reply_markup)
-            except TelegramBadRequest as exc:
-                error_text = str(exc)
-                if "message is too long" not in error_text and "text is too long" not in error_text:
-                    raise
-                fallback, was_truncated = self._render_final_text(body[: TELEGRAM_TEXT_LIMIT - 32])
-                await self._safe_edit(rendered=fallback, reply_markup=reply_markup)
+                try:
+                    await self._safe_edit(rendered=rendered, reply_markup=reply_markup)
+                except TelegramBadRequest as exc:
+                    error_text = str(exc)
+                    if "message is too long" not in error_text and "text is too long" not in error_text:
+                        raise
+                    fallback, was_truncated = self._render_final_text(body[: TELEGRAM_TEXT_LIMIT - 32])
+                    await self._safe_edit(rendered=fallback, reply_markup=reply_markup)
+            except Exception:
+                logger.warning("Telegram final edit failed for chat_id=%s; sending a fresh final message", self.chat_id, exc_info=True)
+                await self._safe_send(rendered=rendered, reply_markup=reply_markup)
         document_text = attachment_text or full_text or body
         if len(document_text) >= self.send_log_threshold or was_truncated:
             data = document_text.encode("utf-8", errors="replace")

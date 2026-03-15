@@ -82,6 +82,7 @@ E) Telegram output
 - Once progress appears, the header changes to `Telecodex working (Ns)` and the counter runs from task start.
 - Streaming status text is built only from human-readable Codex commentary.
 - The live status message is replaced by the final reply.
+- If Telegram message edits stall, time out, or stop updating for too long, the bot must recover by sending a fresh status/final message instead of silently hanging on a stale timer message.
 - If the reply is too large for a safe Telegram message, the bot sends a preview in chat and the full reply as a file.
 - The final reply includes `New session` and `Switch project` buttons.
 - For voice input, the bot shows a short transcription status, deletes it after success, and sends the clean transcript as a separate message.
