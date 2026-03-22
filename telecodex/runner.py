@@ -243,7 +243,7 @@ class CodexRunner:
     def _build_command(self, prompt: str, codex_session_id: str | None, project_path: str) -> list[str]:
         base = list(self.command)
         if base and Path(base[0]).name == "codex":
-            base = [base[0], "--cd", project_path, *base[1:]]
+            base = [base[0], "--cd", project_path, "--skip-git-repo-check", *base[1:]]
         if codex_session_id:
             command = [*base, "resume"]
             if "--json" not in command:
