@@ -106,7 +106,7 @@ Logs and history
 Codex CLI integration
 - The bot runs `CODEX_COMMAND` with the prompt appended.
 - The Codex subprocess is started with `cwd = project_path`.
-- When `CODEX_COMMAND` points to the `codex` CLI binary, the runner also passes `--cd <project_path>` and `--skip-git-repo-check` explicitly to Codex so project resolution stays anchored to the selected path and non-repository directories do not fail the trust check.
+- When `CODEX_COMMAND` points to the `codex` CLI binary, the runner passes `--cd <project_path>` as a top-level Codex option and `--skip-git-repo-check` as an `exec` option so project resolution stays anchored to the selected path and non-repository directories do not fail the trust check.
 - New tasks use `codex exec --json -- <prompt>`.
 - Continuing a conversation uses `codex exec resume --json <codex_session_id> -- <prompt>`.
 - The runner must pass prompt text after `--` so prompts that begin with `-` are never parsed as CLI flags.

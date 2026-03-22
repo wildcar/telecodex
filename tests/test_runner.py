@@ -68,8 +68,8 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
         "codex",
         "--cd",
         "/tmp/demo",
-        "--skip-git-repo-check",
         "exec",
+        "--skip-git-repo-check",
         "--model",
         "gpt-5",
         "--json",
@@ -87,8 +87,8 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
         "codex",
         "--cd",
         "/tmp/demo",
-        "--skip-git-repo-check",
         "exec",
+        "--skip-git-repo-check",
         "--model",
         "gpt-5",
         "resume",
@@ -104,7 +104,7 @@ def test_build_command_guards_prompt_that_starts_with_dash() -> None:
 
     command = runner._build_command("- bullet", None, "/tmp/demo")
 
-    assert command == ["codex", "--cd", "/tmp/demo", "--skip-git-repo-check", "exec", "--json", "--", "- bullet"]
+    assert command == ["codex", "--cd", "/tmp/demo", "exec", "--skip-git-repo-check", "--json", "--", "- bullet"]
 
 
 def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
@@ -116,8 +116,8 @@ def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
         "codex",
         "--cd",
         "/tmp/demo",
-        "--skip-git-repo-check",
         "exec",
+        "--skip-git-repo-check",
         "resume",
         "--json",
         "12345678-1234-1234-1234-1234567890ab",
