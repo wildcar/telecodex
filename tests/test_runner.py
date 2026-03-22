@@ -62,18 +62,20 @@ def test_parser_handles_invalid_json_gracefully() -> None:
 def test_build_command_keeps_full_prompt_as_single_argument() -> None:
     runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
 
-    command = runner._build_command("line one\nline two", None)
+    command = runner._build_command("line one\nline two", None, "/tmp/demo")
 
-    assert command == ["codex", "exec", "--model", "gpt-5", "--json", "--", "line one\nline two"]
+    assert command == ["codex", "--cd", "/tmp/demo", "exec", "--model", "gpt-5", "--json", "--", "line one\nline two"]
 
 
 def test_build_command_uses_native_resume_when_ref_exists() -> None:
     runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
 
-    command = runner._build_command("continue", "12345678-1234-1234-1234-1234567890ab")
+    command = runner._build_command("continue", "12345678-1234-1234-1234-1234567890ab", "/tmp/demo")
 
     assert command == [
         "codex",
+        "--cd",
+        "/tmp/demo",
         "exec",
         "--model",
         "gpt-5",
@@ -88,18 +90,20 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
 def test_build_command_guards_prompt_that_starts_with_dash() -> None:
     runner = CodexRunner("codex exec", timeout_sec=1)
 
-    command = runner._build_command("- bullet", None)
+    command = runner._build_command("- bullet", None, "/tmp/demo")
 
-    assert command == ["codex", "exec", "--json", "--", "- bullet"]
+    assert command == ["codex", "--cd", "/tmp/demo", "exec", "--json", "--", "- bullet"]
 
 
 def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
     runner = CodexRunner("codex exec", timeout_sec=1)
 
-    command = runner._build_command("- bullet", "12345678-1234-1234-1234-1234567890ab")
+    command = runner._build_command("- bullet", "12345678-1234-1234-1234-1234567890ab", "/tmp/demo")
 
     assert command == [
         "codex",
+        "--cd",
+        "/tmp/demo",
         "exec",
         "resume",
         "--json",
@@ -107,6 +111,14 @@ def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
         "--",
         "- bullet",
     ]
+
+
+def test_build_command_does_not_inject_cd_for_non_codex_binaries() -> None:
+    runner = CodexRunner("/tmp/fake_codex.sh", timeout_sec=1)
+
+    command = runner._build_command("hello", None, "/tmp/demo")
+
+    assert command == ["/tmp/fake_codex.sh", "--json", "--", "hello"]
 
 
 def test_extract_codex_session_id_from_raw_output() -> None:

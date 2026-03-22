@@ -240,8 +240,10 @@ class CodexRunner:
         self.timeout_sec = timeout_sec
         self.parser = CodexJsonEventParser()
 
-    def _build_command(self, prompt: str, codex_session_id: str | None) -> list[str]:
+    def _build_command(self, prompt: str, codex_session_id: str | None, project_path: str) -> list[str]:
         base = list(self.command)
+        if base and Path(base[0]).name == "codex":
+            base = [base[0], "--cd", project_path, *base[1:]]
         if codex_session_id:
             command = [*base, "resume"]
             if "--json" not in command:
@@ -261,7 +263,7 @@ class CodexRunner:
         on_message: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
-        command = self._build_command(user_prompt, codex_session_id)
+        command = self._build_command(user_prompt, codex_session_id, project_path)
         env = os.environ.copy()
         proc = await asyncio.create_subprocess_exec(
             *command,
