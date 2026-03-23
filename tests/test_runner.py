@@ -66,6 +66,8 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
 
     assert command == [
         "codex",
+        "-s",
+        "danger-full-access",
         "--cd",
         "/tmp/demo",
         "exec",
@@ -85,6 +87,8 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
 
     assert command == [
         "codex",
+        "-s",
+        "danger-full-access",
         "--cd",
         "/tmp/demo",
         "exec",
@@ -104,7 +108,18 @@ def test_build_command_guards_prompt_that_starts_with_dash() -> None:
 
     command = runner._build_command("- bullet", None, "/tmp/demo")
 
-    assert command == ["codex", "--cd", "/tmp/demo", "exec", "--skip-git-repo-check", "--json", "--", "- bullet"]
+    assert command == [
+        "codex",
+        "-s",
+        "danger-full-access",
+        "--cd",
+        "/tmp/demo",
+        "exec",
+        "--skip-git-repo-check",
+        "--json",
+        "--",
+        "- bullet",
+    ]
 
 
 def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
@@ -114,6 +129,8 @@ def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
 
     assert command == [
         "codex",
+        "-s",
+        "danger-full-access",
         "--cd",
         "/tmp/demo",
         "exec",
