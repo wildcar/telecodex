@@ -243,9 +243,9 @@ class CodexRunner:
     def _build_command(self, prompt: str, codex_session_id: str | None, project_path: str) -> list[str]:
         base = list(self.command)
         if base and Path(base[0]).name == "codex":
-            base = [base[0], "-s", "danger-full-access", "--cd", project_path, *base[1:]]
-            if len(base) >= 6 and base[5] == "exec":
-                base = [*base[:6], "--skip-git-repo-check", *base[6:]]
+            base = [base[0], "--dangerously-bypass-approvals-and-sandbox", "--cd", project_path, *base[1:]]
+            if len(base) >= 5 and base[4] == "exec":
+                base = [*base[:5], "--skip-git-repo-check", *base[5:]]
         if codex_session_id:
             command = [*base, "resume"]
             if "--json" not in command:

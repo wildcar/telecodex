@@ -66,8 +66,7 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
 
     assert command == [
         "codex",
-        "-s",
-        "danger-full-access",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--cd",
         "/tmp/demo",
         "exec",
@@ -87,8 +86,7 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
 
     assert command == [
         "codex",
-        "-s",
-        "danger-full-access",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--cd",
         "/tmp/demo",
         "exec",
@@ -110,8 +108,7 @@ def test_build_command_guards_prompt_that_starts_with_dash() -> None:
 
     assert command == [
         "codex",
-        "-s",
-        "danger-full-access",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--cd",
         "/tmp/demo",
         "exec",
@@ -129,8 +126,7 @@ def test_build_resume_command_guards_prompt_that_starts_with_dash() -> None:
 
     assert command == [
         "codex",
-        "-s",
-        "danger-full-access",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--cd",
         "/tmp/demo",
         "exec",

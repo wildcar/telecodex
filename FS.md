@@ -106,7 +106,7 @@ Logs and history
 Codex CLI integration
 - The bot runs `CODEX_COMMAND` with the prompt appended.
 - The Codex subprocess is started with `cwd = project_path`.
-- When `CODEX_COMMAND` points to the `codex` CLI binary, the runner passes `-s danger-full-access` and `--cd <project_path>` as top-level Codex options and `--skip-git-repo-check` as an `exec` option so Codex runs with the requested sandbox mode, stays anchored to the selected path, and does not fail the trust check in non-repository directories.
+- When `CODEX_COMMAND` points to the `codex` CLI binary, the runner passes `--dangerously-bypass-approvals-and-sandbox` and `--cd <project_path>` as top-level Codex options and `--skip-git-repo-check` as an `exec` option so Codex runs with the requested sandbox mode, stays anchored to the selected path, and does not fail the trust check in non-repository directories.
 - New tasks use `codex exec --json -- <prompt>`.
 - Continuing a conversation uses `codex exec resume --json <codex_session_id> -- <prompt>`.
 - The runner must pass prompt text after `--` so prompts that begin with `-` are never parsed as CLI flags.
