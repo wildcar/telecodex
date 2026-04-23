@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import re
 import signal
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from telecodex.runner import CodexRunner
 from telecodex.streaming import TelegramStreamEditor
 
 logger = logging.getLogger(__name__)
+
+SAFE_HISTORY_FILENAME_RE = re.compile(r'[<>:"/\\\\|?*\x00-\x1f]+')
 
 
 @dataclass(slots=True)
@@ -610,7 +613,7 @@ class TelecodexApplication:
             return
 
         _append_conversation_log(
-            self._conversation_log_path(telegram_user_id),
+            self._conversation_log_path(telegram_user_id, state.project_name),
             timestamp=datetime.now(UTC),
             user_prompt=prompt,
             command=result.command,
@@ -716,8 +719,8 @@ class TelecodexApplication:
         await self.repo.set_chat_state(state.chat_id, state.project_name, None)
         return None
 
-    def _conversation_log_path(self, telegram_user_id: int) -> Path:
-        return self.settings.history_dir / f"conversation{telegram_user_id}.log"
+    def _conversation_log_path(self, telegram_user_id: int, project_name: str) -> Path:
+        return self.settings.history_dir / str(telegram_user_id) / f"{_safe_history_log_stem(project_name)}.log"
 
     def _restart_marker_path(self) -> Path:
         return self.settings.db_path.parent / "restart_request.json"
@@ -1117,6 +1120,13 @@ def _append_conversation_log(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fp:
         fp.write(body)
+
+
+def _safe_history_log_stem(project_name: str) -> str:
+    normalized = SAFE_HISTORY_FILENAME_RE.sub("_", project_name).strip().rstrip(".")
+    if not normalized or normalized in {".", ".."}:
+        return "unnamed-project"
+    return normalized
 
 
 def _save_restart_request(path: Path, *, chat_id: int, requested_at: datetime) -> None:

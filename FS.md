@@ -95,7 +95,9 @@ F) Access and admin actions
 - On `/restart` the bot stores a restart marker, stops polling, and after the next successful startup sends a confirmation to the same chat and clears the marker.
 
 Logs and history
-- User-facing history is stored only in a plaintext file named `conversation<TelegramUserID>.log`.
+- User-facing history is stored only under `history/<TelegramUserID>/`.
+- Each project has its own plaintext log file named `<project-name>.log` inside that user directory.
+- The log filename is derived from the project name with filesystem-unsafe characters normalized so it is always a safe local filename.
 - Each run appends:
   - timestamp
   - original user message

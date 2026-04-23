@@ -14,6 +14,7 @@ from telecodex.bot import (
     TelecodexApplication,
     _append_conversation_log,
     _load_restart_request,
+    _safe_history_log_stem,
 )
 from telecodex.config import Settings
 from telecodex.db import init_db
@@ -238,7 +239,7 @@ async def test_load_projects_merges_db_projects_into_runtime_map(tmp_path: Path)
     assert app.projects["custom"] == tmp_path
 
 
-def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
+def test_conversation_log_path_uses_user_directory_and_project_file(tmp_path: Path) -> None:
     app = TelecodexApplication(
         bot=Bot("123:ABC"),
         dispatcher=Dispatcher(),
@@ -247,11 +248,15 @@ def test_conversation_log_path_uses_telegram_user_id(tmp_path: Path) -> None:
         settings=build_settings(tmp_path),
     )
 
-    assert app._conversation_log_path(4242) == tmp_path / "history" / "conversation4242.log"
+    assert app._conversation_log_path(4242, "demo") == tmp_path / "history" / "4242" / "demo.log"
+
+
+def test_safe_history_log_stem_normalizes_unsafe_project_name() -> None:
+    assert _safe_history_log_stem('ops/core:prod\\west?*') == "ops_core_prod_west_"
 
 
 def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:
-    path = tmp_path / "history" / "conversation77.log"
+    path = tmp_path / "history" / "77" / "demo.log"
 
     _append_conversation_log(
         path,
