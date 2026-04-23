@@ -480,6 +480,71 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
 
 
 @pytest.mark.asyncio
+async def test_execute_prompt_finishes_stream_when_runner_crashes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    await init_db(str(tmp_path / "db.sqlite3"))
+    app = _build_app(tmp_path)
+    await app.repo.save_project("demo", str(tmp_path))
+    await app.repo.set_chat_state(1001, "demo", None)
+    app.projects = {"demo": tmp_path}
+    app.runner = SimpleNamespace(run=AsyncMock(side_effect=RuntimeError("runner boom")))
+    app.bot.send_chat_action = AsyncMock()
+
+    class FakeStreamEditor:
+        instances: list["FakeStreamEditor"] = []
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.started: list[str] = []
+            self.finish_calls: list[dict[str, object]] = []
+            FakeStreamEditor.instances.append(self)
+
+        async def start(self, title: str) -> None:
+            self.started.append(title)
+
+        async def publish_status(self, status: str) -> None:
+            return None
+
+        async def publish_answer(self, text: str) -> None:
+            return None
+
+        async def finish(
+            self,
+            success: bool,
+            summary: str,
+            final_text: str | None = None,
+            full_text: str = "",
+            reply_markup=None,
+            attachment_text: str | None = None,
+        ) -> str:
+            self.finish_calls.append(
+                {
+                    "success": success,
+                    "summary": summary,
+                    "final_text": final_text,
+                    "attachment_text": attachment_text,
+                }
+            )
+            return final_text or full_text
+
+    monkeypatch.setattr("telecodex.bot.TelegramStreamEditor", FakeStreamEditor)
+    message = SimpleNamespace(chat=SimpleNamespace(id=1001), from_user=SimpleNamespace(id=1001))
+
+    await app._execute_prompt(message, "Fix it")
+
+    assert len(FakeStreamEditor.instances) == 1
+    stream = FakeStreamEditor.instances[0]
+    assert stream.started == ["Telecodex thinking"]
+    assert stream.finish_calls == [
+        {
+            "success": False,
+            "summary": "failed: internal error",
+            "final_text": "Codex failed before it could produce a reply.",
+            "attachment_text": "runner boom",
+        }
+    ]
+    assert 1001 not in app.active_runs
+
+
+@pytest.mark.asyncio
 async def test_handle_project_creation_input_creates_project_and_selects_it(tmp_path: Path) -> None:
     await init_db(str(tmp_path / "db.sqlite3"))
     app = _build_app(tmp_path)

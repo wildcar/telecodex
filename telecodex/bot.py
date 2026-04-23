@@ -577,6 +577,8 @@ class TelecodexApplication:
             cancel_event=cancel_event,
         )
 
+        result = None
+        runner_error: Exception | None = None
         try:
             result = await self.runner.run(
                 project_path=str(self.projects[state.project_name]),
@@ -586,10 +588,26 @@ class TelecodexApplication:
                 on_message=stream.publish_answer,
                 cancel_event=cancel_event,
             )
+        except Exception as exc:
+            runner_error = exc
+            logger.exception(
+                "Codex runner crashed",
+                extra={"chat_id": chat_id, "project_name": state.project_name},
+            )
         finally:
             cancel_event.set()
             await typing_task
             self.active_runs.pop(chat_id, None)
+
+        if runner_error is not None:
+            await stream.finish(
+                False,
+                "failed: internal error",
+                final_text="Codex failed before it could produce a reply.",
+                reply_markup=self._result_keyboard(),
+                attachment_text=str(runner_error),
+            )
+            return
 
         _append_conversation_log(
             self._conversation_log_path(telegram_user_id),

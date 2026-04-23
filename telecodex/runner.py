@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -265,15 +266,23 @@ class CodexRunner:
         on_message: Callable[[str], Awaitable[None]] | None,
         cancel_event: asyncio.Event,
     ) -> RunResult:
-        command = self._build_command(user_prompt, codex_session_id, project_path)
         env = os.environ.copy()
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=str(Path(project_path)),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
+        command = self._build_command(user_prompt, codex_session_id, project_path)
+        command[0] = self._resolve_command_executable(command[0], env)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(Path(project_path)),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+        except OSError as exc:
+            logger.exception(
+                "Codex process failed to start",
+                extra={"command": shlex.join(command), "project_path": project_path},
+            )
+            return self._startup_failure_result(command, codex_session_id, exc)
 
         raw_collected: list[str] = []
         aggregator = CodexResponseAggregator()
@@ -350,6 +359,70 @@ class CodexRunner:
             codex_session_id=aggregator.session_id or codex_session_id,
             timed_out=timed_out,
             cancelled=cancelled,
+        )
+
+    @classmethod
+    def _resolve_command_executable(cls, executable: str, env: dict[str, str]) -> str:
+        if os.sep in executable:
+            return executable
+        resolved = shutil.which(executable, path=env.get("PATH"))
+        if resolved:
+            return resolved
+        if Path(executable).name != "codex":
+            return executable
+        for candidate in cls._codex_fallback_candidates():
+            if cls._is_executable_file(candidate):
+                logger.info("Resolved codex executable from fallback path %s", candidate)
+                return str(candidate)
+        return executable
+
+    @classmethod
+    def _codex_fallback_candidates(cls) -> list[Path]:
+        home = Path.home()
+        candidates = [
+            home / ".local/bin/codex",
+            home / ".npm/bin/codex",
+        ]
+        nvm_root = home / ".nvm/versions/node"
+        nvm_candidates = sorted(
+            nvm_root.glob("*/bin/codex"),
+            key=cls._codex_version_sort_key,
+            reverse=True,
+        )
+        return [*candidates, *nvm_candidates]
+
+    @staticmethod
+    def _codex_version_sort_key(path: Path) -> tuple[int, ...]:
+        version = path.parents[1].name.lstrip("v")
+        parts: list[int] = []
+        for item in version.split("."):
+            try:
+                parts.append(int(item))
+            except ValueError:
+                parts.append(-1)
+        return tuple(parts)
+
+    @staticmethod
+    def _is_executable_file(path: Path) -> bool:
+        return path.is_file() and os.access(path, os.X_OK)
+
+    @staticmethod
+    def _startup_failure_result(command: list[str], codex_session_id: str | None, exc: OSError) -> RunResult:
+        detail = f"Failed to start Codex command: {exc}"
+        if isinstance(exc, FileNotFoundError) and exc.filename == command[0] and Path(command[0]).name == "codex":
+            detail = (
+                "Codex executable was not found for the bot service. "
+                "Set CODEX_COMMAND to an absolute binary path or install codex in the service PATH."
+            )
+        return RunResult(
+            success=False,
+            return_code=-1,
+            command=shlex.join(command),
+            raw_output=f"[runner] {detail}\n",
+            output="",
+            assistant_text="",
+            display_text=detail,
+            codex_session_id=codex_session_id,
         )
 
     async def _wait_with_cancel(self, proc: asyncio.subprocess.Process, cancel_event: asyncio.Event) -> int:
