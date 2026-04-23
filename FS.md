@@ -130,6 +130,7 @@ Technical requirements
 - The Python package directory is `telecodex/`, and the main entrypoint is `python -m telecodex.main`.
 - The systemd service name is `telecodex`.
 - The production deployment path is `/opt/telecodex`.
+- `/opt/telecodex` is a symlink to the current working checkout used by the running systemd service and must point to a valid repository tree.
 - The working repository path for local development and maintenance is `/home/keeper/repo/telecodex_bot`.
 - Documentation, source-code comments, and user-facing UI text are maintained in English.
 - The repository includes a short technical note `bot_cli_codex_interface.md` that explains how the bot talks to Codex CLI and how CLI output is streamed or finalized back into Telegram chat.
