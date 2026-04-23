@@ -28,6 +28,7 @@ from telecodex.streaming import TelegramStreamEditor
 logger = logging.getLogger(__name__)
 
 SAFE_HISTORY_FILENAME_RE = re.compile(r'[<>:"/\\\\|?*\x00-\x1f]+')
+TEXT_DOCUMENT_MAX_BYTES = 512 * 1024
 
 
 @dataclass(slots=True)
@@ -271,6 +272,11 @@ class TelecodexApplication:
         async def run_voice(message: Message) -> None:
             self.pending_project_drafts.pop(message.chat.id, None)
             await self._handle_voice_message(message)
+
+        @self.router.message(F.document)
+        async def run_document(message: Message) -> None:
+            self.pending_project_drafts.pop(message.chat.id, None)
+            await self._handle_document_message(message)
 
         @self.router.message(F.text & ~F.text.startswith("/"))
         async def run_text(message: Message) -> None:
@@ -697,6 +703,23 @@ class TelecodexApplication:
         await message.answer(transcript)
         await self._execute_prompt(message, transcript)
 
+    async def _handle_document_message(self, message: Message) -> None:
+        if not message.document:
+            return
+
+        try:
+            filename, document_text = await self._download_text_document(message)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        except Exception:
+            logger.exception("Document download failed", extra={"chat_id": message.chat.id})
+            await message.answer("Failed to download the text file.")
+            return
+
+        prompt = _build_document_prompt(filename, message.caption or "", document_text)
+        await self._execute_prompt(message, prompt)
+
     async def _download_voice_bytes(self, message: Message) -> bytes:
         if not message.voice:
             raise ValueError("Voice message not found.")
@@ -709,6 +732,25 @@ class TelecodexApplication:
         if not voice_bytes:
             raise ValueError("Could not download the voice message.")
         return voice_bytes
+
+    async def _download_text_document(self, message: Message) -> tuple[str, str]:
+        if not message.document:
+            raise ValueError("Text file not found.")
+        document = message.document
+        filename = document.file_name or "attachment.txt"
+        if document.file_size and document.file_size > TEXT_DOCUMENT_MAX_BYTES:
+            raise ValueError("Text files larger than 512 KiB are not supported.")
+        file = await message.bot.get_file(document.file_id)
+        if not file.file_path:
+            raise ValueError("Could not retrieve the text file.")
+        buffer = io.BytesIO()
+        await message.bot.download_file(file.file_path, destination=buffer)
+        payload = buffer.getvalue()
+        if not payload:
+            raise ValueError("Could not download the text file.")
+        if len(payload) > TEXT_DOCUMENT_MAX_BYTES:
+            raise ValueError("Text files larger than 512 KiB are not supported.")
+        return filename, _decode_text_document(payload)
 
     async def _get_selected_session(self, state: ChatState) -> SessionRecord | None:
         if not state.codex_session_id:
@@ -1127,6 +1169,43 @@ def _safe_history_log_stem(project_name: str) -> str:
     if not normalized or normalized in {".", ".."}:
         return "unnamed-project"
     return normalized
+
+
+def _build_document_prompt(filename: str, caption: str, document_text: str) -> str:
+    sections: list[str] = []
+    note = caption.strip()
+    if note:
+        sections.append(f"User explanation:\n{note}")
+    sections.append(
+        f"Attached text file: {filename}\n"
+        "--- BEGIN ATTACHED FILE ---\n"
+        f"{document_text.rstrip()}\n"
+        "--- END ATTACHED FILE ---"
+    )
+    return "\n\n".join(sections)
+
+
+def _decode_text_document(payload: bytes) -> str:
+    try:
+        text = payload.decode("utf-8-sig")
+        if _is_supported_plain_text(text):
+            return text
+    except UnicodeDecodeError:
+        pass
+    if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            text = payload.decode("utf-16")
+            if _is_supported_plain_text(text):
+                return text
+        except UnicodeDecodeError:
+            pass
+    if b"\x00" in payload:
+        raise ValueError("Only plaintext files are supported.")
+    raise ValueError("Only decodable plaintext files are supported. Use UTF-8 or UTF-16 text files.")
+
+
+def _is_supported_plain_text(text: str) -> bool:
+    return not any(char not in "\n\r\t" and ord(char) < 32 for char in text)
 
 
 def _save_restart_request(path: Path, *, chat_id: int, requested_at: datetime) -> None:

@@ -13,6 +13,8 @@ from telecodex.bot import (
     PendingProjectDraft,
     TelecodexApplication,
     _append_conversation_log,
+    _build_document_prompt,
+    _decode_text_document,
     _load_restart_request,
     _safe_history_log_stem,
 )
@@ -482,6 +484,77 @@ async def test_handle_voice_message_transcribes_and_runs_prompt(tmp_path: Path, 
     assert message.answer.await_args_list[0].args == ("Transcribing voice message ⠋",)
     assert message.answer.await_args_list[1].args == ("Transcribed text",)
     app._execute_prompt.assert_awaited_once_with(message, "Transcribed text")
+
+
+@pytest.mark.asyncio
+async def test_handle_document_message_builds_prompt_from_caption_and_file(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    app._execute_prompt = AsyncMock()
+    bot = SimpleNamespace(
+        get_file=AsyncMock(return_value=SimpleNamespace(file_path="docs/task.txt")),
+        download_file=AsyncMock(side_effect=lambda file_path, destination: destination.write(b"line 1\nline 2\n")),
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=1001),
+        document=SimpleNamespace(file_id="doc-1", file_name="task.txt", file_size=14),
+        caption="Please apply the instructions from the file.",
+        bot=bot,
+        answer=AsyncMock(),
+    )
+
+    await app._handle_document_message(message)
+
+    bot.get_file.assert_awaited_once_with("doc-1")
+    bot.download_file.assert_awaited_once()
+    app._execute_prompt.assert_awaited_once_with(
+        message,
+        "User explanation:\n"
+        "Please apply the instructions from the file.\n\n"
+        "Attached text file: task.txt\n"
+        "--- BEGIN ATTACHED FILE ---\n"
+        "line 1\n"
+        "line 2\n"
+        "--- END ATTACHED FILE ---",
+    )
+    message.answer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_document_message_rejects_binary_file(tmp_path: Path) -> None:
+    app = _build_app(tmp_path)
+    app._execute_prompt = AsyncMock()
+    bot = SimpleNamespace(
+        get_file=AsyncMock(return_value=SimpleNamespace(file_path="docs/task.bin")),
+        download_file=AsyncMock(side_effect=lambda file_path, destination: destination.write(b"\x00\x01\x02")),
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=1001),
+        document=SimpleNamespace(file_id="doc-1", file_name="task.bin", file_size=3),
+        caption="",
+        bot=bot,
+        answer=AsyncMock(),
+    )
+
+    await app._handle_document_message(message)
+
+    message.answer.assert_awaited_once_with("Only plaintext files are supported.")
+    app._execute_prompt.assert_not_awaited()
+
+
+def test_build_document_prompt_combines_caption_and_attachment() -> None:
+    assert _build_document_prompt("task.txt", "Review this", "hello\nworld\n") == (
+        "User explanation:\n"
+        "Review this\n\n"
+        "Attached text file: task.txt\n"
+        "--- BEGIN ATTACHED FILE ---\n"
+        "hello\n"
+        "world\n"
+        "--- END ATTACHED FILE ---"
+    )
+
+
+def test_decode_text_document_accepts_utf16() -> None:
+    assert _decode_text_document("hello".encode("utf-16")) == "hello"
 
 
 @pytest.mark.asyncio

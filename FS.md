@@ -69,6 +69,9 @@ C) Session management
 
 D) Task execution
 - Any non-command text message is treated as a Codex task.
+- Telegram text documents are also treated as Codex tasks.
+- When a text document has a caption, the caption is prepended as the user explanation and the decoded file body is appended after it in the same Codex prompt.
+- The bot accepts only decodable plaintext documents for this flow and returns a clear user-facing error for binary or oversized files.
 - Voice messages are transcribed through Deepgram and then executed as normal text tasks.
 - `/status` shows the current task status.
 - `/cancel` stops the active subprocess.
