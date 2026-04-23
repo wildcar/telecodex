@@ -109,6 +109,7 @@ Codex CLI integration
 - The bot runs `CODEX_COMMAND` with the prompt appended.
 - The Codex subprocess is started with `cwd = project_path`.
 - If `CODEX_COMMAND` uses the bare `codex` executable name and it is missing from the service `PATH`, the runner must resolve it from common per-user install locations such as `~/.nvm/.../bin/codex` before failing the run.
+- If the resolved Codex executable is a script that depends on sibling runtime binaries such as `node` via `/usr/bin/env`, the runner must augment the subprocess `PATH` with the Codex executable directory so those binaries are discoverable even under a minimal systemd environment.
 - When `CODEX_COMMAND` points to the `codex` CLI binary, the runner passes `--dangerously-bypass-approvals-and-sandbox` and `--cd <project_path>` as top-level Codex options and `--skip-git-repo-check` as an `exec` option so Codex runs with the requested sandbox mode, stays anchored to the selected path, and does not fail the trust check in non-repository directories.
 - New tasks use `codex exec --json -- <prompt>`.
 - Continuing a conversation uses `codex exec resume --json <codex_session_id> -- <prompt>`.

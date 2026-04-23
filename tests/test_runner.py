@@ -246,16 +246,35 @@ async def test_run_uses_completed_agent_message_as_final_text(tmp_path: Path) ->
 async def test_run_finds_codex_in_nvm_when_service_path_is_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     script = tmp_path / ".nvm" / "versions" / "node" / "v24.15.0" / "bin" / "codex"
     script.parent.mkdir(parents=True)
-    script.write_text(
-        "#!/bin/bash\n"
-        "printf '%s\\n' '{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"last_agent_message\":\"Done from fallback\"}}'\n",
-        encoding="utf-8",
-    )
-    script.chmod(0o755)
+    _write_fake_node_runtime(script.parent)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", "")
 
     runner = CodexRunner("codex exec", timeout_sec=5)
+
+    result = await runner.run(
+        project_path=str(tmp_path),
+        codex_session_id=None,
+        user_prompt="Hello",
+        on_progress=None,
+        on_message=None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert result.success is True
+    assert result.assistant_text == "Done from fallback"
+    assert result.command.startswith(str(script))
+
+
+@pytest.mark.asyncio
+async def test_run_prepends_absolute_codex_runtime_dir_to_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    script = runtime_dir / "codex"
+    _write_fake_node_runtime(runtime_dir)
+    monkeypatch.setenv("PATH", "")
+
+    runner = CodexRunner(f"{script} exec", timeout_sec=5)
 
     result = await runner.run(
         project_path=str(tmp_path),
@@ -288,6 +307,21 @@ async def test_run_returns_failed_result_when_command_cannot_start(tmp_path: Pat
     assert result.return_code == -1
     assert "Failed to start Codex command" in result.display_text
     assert result.raw_output.startswith("[runner] Failed to start Codex command:")
+
+
+def _write_fake_node_runtime(runtime_dir: Path) -> None:
+    (runtime_dir / "codex").write_text(
+        "#!/usr/bin/env node\n"
+        "console.log('fake codex js entrypoint');\n",
+        encoding="utf-8",
+    )
+    (runtime_dir / "codex").chmod(0o755)
+    (runtime_dir / "node").write_text(
+        "#!/bin/bash\n"
+        "printf '%s\\n' '{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"last_agent_message\":\"Done from fallback\"}}'\n",
+        encoding="utf-8",
+    )
+    (runtime_dir / "node").chmod(0o755)
 
 
 def _collector(items: list[str]):

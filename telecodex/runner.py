@@ -269,6 +269,7 @@ class CodexRunner:
         env = os.environ.copy()
         command = self._build_command(user_prompt, codex_session_id, project_path)
         command[0] = self._resolve_command_executable(command[0], env)
+        env = self._augment_env_for_executable(command[0], env)
         try:
             proc = await asyncio.create_subprocess_exec(
                 *command,
@@ -375,6 +376,20 @@ class CodexRunner:
                 logger.info("Resolved codex executable from fallback path %s", candidate)
                 return str(candidate)
         return executable
+
+    @staticmethod
+    def _augment_env_for_executable(executable: str, env: dict[str, str]) -> dict[str, str]:
+        resolved_path = Path(executable)
+        if resolved_path.name != "codex" or not resolved_path.is_absolute():
+            return env
+        runtime_dir = str(resolved_path.parent)
+        current_path = env.get("PATH", "")
+        path_parts = current_path.split(os.pathsep) if current_path else []
+        if runtime_dir in path_parts:
+            return env
+        updated = dict(env)
+        updated["PATH"] = os.pathsep.join([runtime_dir, *path_parts]) if path_parts else runtime_dir
+        return updated
 
     @classmethod
     def _codex_fallback_candidates(cls) -> list[Path]:
