@@ -130,9 +130,10 @@ Technical requirements
 - The Python package directory is `telecodex/`, and the main entrypoint is `python -m telecodex.main`.
 - The systemd service name is `telecodex`.
 - The production deployment path is `/opt/telecodex`.
+- The working repository path for local development and maintenance is `/home/keeper/repo/telecodex_bot`.
 - Documentation, source-code comments, and user-facing UI text are maintained in English.
 - The repository includes a short technical note `bot_cli_codex_interface.md` that explains how the bot talks to Codex CLI and how CLI output is streamed or finalized back into Telegram chat.
 - Regular commit flow: `git add <files> && git commit -m "<message>" && git push origin main`.
 - Commits in this repository must use the git author identity `wildcar <wildcar@users.noreply.github.com>`.
 - `README.md` should describe the current bot behavior and operations in a short practical form.
-- Tests run locally with `cd /home/codex/telecodex_bot && ./.venv/bin/pytest -q`.
+- Tests run locally with `cd /home/keeper/repo/telecodex_bot && ./.venv/bin/pytest -q`.

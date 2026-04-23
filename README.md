@@ -38,12 +38,12 @@ Additional values for voice messages:
 - `DEEPGRAM_BASE_URL`
 - `DEEPGRAM_MODEL`
 
-See [.env.example](/home/codex/telecodex_bot/.env.example) for an example.
+See [.env.example](/home/keeper/repo/telecodex_bot/.env.example) for an example.
 
 ## Quick start
 
 ```bash
-cd /home/codex/telecodex_bot
+cd /home/keeper/repo/telecodex_bot
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 cp .env.example .env
@@ -52,7 +52,7 @@ cp .env.example .env
 After filling `.env`, run locally:
 
 ```bash
-cd /home/codex/telecodex_bot
+cd /home/keeper/repo/telecodex_bot
 ./.venv/bin/python -m telecodex.main
 ```
 
@@ -72,6 +72,6 @@ sudo systemctl start telecodex
 ## Tests
 
 ```bash
-cd /home/codex/telecodex_bot
+cd /home/keeper/repo/telecodex_bot
 ./.venv/bin/pytest -q
 ```

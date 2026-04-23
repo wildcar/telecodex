@@ -7,13 +7,13 @@ It is intentionally short and focused on the actual implementation in this repo.
 
 ## Request Flow
 
-1. A Telegram text message reaches `TelecodexApplication._execute_prompt()` in [telecodex/bot.py](/home/codex/telecodex_bot/telecodex/bot.py).
+1. A Telegram text message reaches `TelecodexApplication._execute_prompt()` in [telecodex/bot.py](/home/keeper/repo/telecodex_bot/telecodex/bot.py).
 2. The bot checks that:
    - no other run is active in the same chat;
    - a project is selected for the chat;
    - the currently selected Codex session is loaded if one exists.
-3. The bot creates `TelegramStreamEditor` from [telecodex/streaming.py](/home/codex/telecodex_bot/telecodex/streaming.py) and sends the initial live status message.
-4. The bot starts `CodexRunner.run()` from [telecodex/runner.py](/home/codex/telecodex_bot/telecodex/runner.py).
+3. The bot creates `TelegramStreamEditor` from [telecodex/streaming.py](/home/keeper/repo/telecodex_bot/telecodex/streaming.py) and sends the initial live status message.
+4. The bot starts `CodexRunner.run()` from [telecodex/runner.py](/home/keeper/repo/telecodex_bot/telecodex/runner.py).
 
 ## How Codex CLI Is Started
 
