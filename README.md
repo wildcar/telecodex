@@ -10,7 +10,7 @@ A Telegram bot for working with Codex CLI inside a selected project. The bot man
 - streaming replies in Telegram
 - voice input through Deepgram
 - restart with confirmation after the service comes back up
-- plaintext run logs in `conversation<TelegramUserID>.log`
+- plaintext per-project run logs under `HISTORY_DIR/<TelegramUserID>/`
 
 ## Main commands
 - `/menu` or `/start`
@@ -67,7 +67,7 @@ sudo systemctl start telecodex
 
 ## Logs
 - runtime log: `LOG_DIR/telecodex_bot.log`
-- conversation logs: `HISTORY_DIR/conversation*.log`
+- conversation logs: `HISTORY_DIR/<TelegramUserID>/<project-name>.log`
 
 ## Tests
 
