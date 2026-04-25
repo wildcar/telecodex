@@ -15,6 +15,7 @@ from telecodex.bot import (
     _append_conversation_log,
     _build_document_prompt,
     _decode_text_document,
+    _diagnostic_failure_detail,
     _format_context_remaining,
     _format_rate_limit,
     _load_restart_request,
@@ -290,6 +291,12 @@ def test_format_rate_limit_uses_matching_window() -> None:
 
 def test_format_rate_limit_hides_missing_window() -> None:
     assert _format_rate_limit({"primary": {"used_percent": 2.0, "window_minutes": 60}}, 300) is None
+
+
+def test_diagnostic_failure_detail_uses_raw_output_tail() -> None:
+    result = SimpleNamespace(display_text="", output="", raw_output="prefix\n[stderr] codex failed\n")
+
+    assert _diagnostic_failure_detail(result) == "prefix\n[stderr] codex failed"
 
 
 def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:

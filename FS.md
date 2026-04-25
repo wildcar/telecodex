@@ -56,6 +56,7 @@ B) Project management
 - Deleting a project removes it from the database together with its saved sessions; chats that used it have both `project_name` and `codex_session_id` cleared.
 - When a project is selected, the bot restores the most recently used session for that project if one exists.
 - After a project is selected, the bot performs a fresh Codex diagnostic request in the selected project and session context, verifies that Codex can answer from that location/session, and shows a project/session info card with the project path, selected session, reported model details when available, context remaining percentage only when it can be calculated from Codex CLI metadata, five-hour and weekly Codex limit remaining only when reported by Codex CLI, and the diagnostic model reply.
+- If the diagnostic Codex request fails, the bot shows the available Codex error detail from raw output instead of only a generic exit code.
 
 C) Session management
 - `/sessions` shows saved sessions for the current project and also accepts `new` or `codex_session_id` as text input.

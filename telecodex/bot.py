@@ -819,6 +819,17 @@ class TelecodexApplication:
         elif selected_session:
             await self.repo.touch_session(selected_session.codex_session_id)
 
+        if not result.success:
+            logger.warning(
+                "Codex context diagnostic returned failure",
+                extra={
+                    "chat_id": chat_id,
+                    "project_name": project_name,
+                    "return_code": result.return_code,
+                    "raw_output_tail": result.raw_output[-2000:],
+                },
+            )
+
         return self._context_diagnostic_card(project_name, project_path, selected_session, result)
 
     def _context_diagnostic_card(
@@ -832,7 +843,7 @@ class TelecodexApplication:
         session_text = self._session_title(session) if session else "new session"
         reply = (result.assistant_text or result.display_text or result.output or "").strip()
         if not reply:
-            reply = "No diagnostic reply returned."
+            reply = _diagnostic_failure_detail(result) if not result.success else "No diagnostic reply returned."
         status = "ok" if result.success else f"failed: code={result.return_code}"
         if result.cancelled:
             status = "cancelled"
@@ -1362,6 +1373,16 @@ def _truncate_text(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 3].rstrip() + "..."
+
+
+def _diagnostic_failure_detail(result: Any) -> str:
+    raw_output = str(getattr(result, "raw_output", "") or "").strip()
+    display_text = str(getattr(result, "display_text", "") or "").strip()
+    output = str(getattr(result, "output", "") or "").strip()
+    detail = display_text or output or raw_output
+    if not detail:
+        return "No diagnostic reply returned."
+    return detail[-2000:]
 
 
 def _command_arg(text: str | None) -> str:
