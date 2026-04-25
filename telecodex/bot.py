@@ -838,19 +838,26 @@ class TelecodexApplication:
             status = "cancelled"
         elif result.timed_out:
             status = "failed: timeout"
-        return (
-            "Project/session check\n"
-            f"Project: {html.escape(project_name)}\n"
-            f"Path: <code>{html.escape(str(project_path))}</code>\n"
-            f"Session: {self._session_text_html(session_text)}\n"
-            f"Codex status: {html.escape(status)}\n"
-            f"Model: {html.escape(model)}\n"
-            f"Effort: {html.escape(effort)}\n"
-            f"Context: {html.escape(_format_context_remaining(result.token_info))}\n"
-            f"5h limit: {html.escape(_format_rate_limit(result.rate_limits, 300))}\n"
-            f"Weekly limit: {html.escape(_format_rate_limit(result.rate_limits, 10080))}\n\n"
-            f"Codex reply:\n{html.escape(_truncate_text(reply, 1600))}"
-        )
+        lines = [
+            f"Project: {html.escape(project_name)}",
+            f"Path: <code>{html.escape(str(project_path))}</code>",
+            f"Session: {self._session_text_html(session_text)}",
+            f"Codex status: {html.escape(status)}",
+            f"Model: {html.escape(model)}",
+            f"Effort: {html.escape(effort)}",
+        ]
+        context_remaining = _format_context_remaining(result.token_info)
+        five_hour_limit = _format_rate_limit(result.rate_limits, 300)
+        weekly_limit = _format_rate_limit(result.rate_limits, 10080)
+        if context_remaining is not None:
+            lines.append(f"Context: {html.escape(context_remaining)}")
+        if five_hour_limit is not None:
+            lines.append(f"5h limit: {html.escape(five_hour_limit)}")
+        if weekly_limit is not None:
+            lines.append(f"Weekly limit: {html.escape(weekly_limit)}")
+        lines.append("")
+        lines.append(f"Codex reply:\n{html.escape(_truncate_text(reply, 1600))}")
+        return "\n".join(lines)
 
     def _context_diagnostic_error_card(
         self,
@@ -862,16 +869,12 @@ class TelecodexApplication:
         model, effort = self._codex_model_and_effort()
         session_text = self._session_title(session) if session else "new session"
         return (
-            "Project/session check\n"
             f"Project: {html.escape(project_name)}\n"
             f"Path: <code>{html.escape(str(project_path))}</code>\n"
             f"Session: {self._session_text_html(session_text)}\n"
             "Codex status: failed before reply\n"
             f"Model: {html.escape(model)}\n"
-            f"Effort: {html.escape(effort)}\n"
-            "Context: unknown\n"
-            "5h limit: unknown\n"
-            "Weekly limit: unknown\n\n"
+            f"Effort: {html.escape(effort)}\n\n"
             f"Codex error:\n{html.escape(_truncate_text(error_text, 1600))}"
         )
 
@@ -1274,31 +1277,27 @@ def _read_codex_config_value(key: str) -> str | None:
     return None
 
 
-def _format_context_remaining(token_info: dict[str, Any] | None) -> str:
+def _format_context_remaining(token_info: dict[str, Any] | None) -> str | None:
     if not token_info:
-        return "unknown"
+        return None
     window = _coerce_int(token_info.get("model_context_window"))
     usage = token_info.get("last_token_usage")
     if not isinstance(usage, dict):
         usage = token_info.get("total_token_usage")
     used = _usage_total_tokens(usage) if isinstance(usage, dict) else None
-    if window is None and used is None:
-        return "unknown"
-    if window is None:
-        return f"used {used:,} tokens"
-    if used is None:
-        return f"window {window:,} tokens, usage unknown"
+    if window is None or used is None:
+        return None
     remaining = max(0, window - used)
     percent = remaining / window * 100 if window else 0
-    return f"{remaining:,} / {window:,} tokens ({percent:.1f}% remaining)"
+    return f"{percent:.1f}% remaining"
 
 
-def _format_rate_limit(rate_limits: dict[str, Any] | None, window_minutes: int) -> str:
+def _format_rate_limit(rate_limits: dict[str, Any] | None, window_minutes: int) -> str | None:
     if not rate_limits:
-        return "unknown"
+        return None
     bucket = _rate_limit_bucket(rate_limits, window_minutes)
     if not bucket:
-        return "unknown"
+        return None
     used_percent = _coerce_float(bucket.get("used_percent"))
     resets_at = _coerce_int(bucket.get("resets_at"))
     parts: list[str] = []
@@ -1307,7 +1306,7 @@ def _format_rate_limit(rate_limits: dict[str, Any] | None, window_minutes: int) 
         parts.append(f"{remaining:.1f}% remaining")
     if resets_at is not None:
         parts.append(f"resets {datetime.fromtimestamp(resets_at, UTC).strftime('%Y-%m-%d %H:%M UTC')}")
-    return ", ".join(parts) if parts else "unknown"
+    return ", ".join(parts) if parts else None
 
 
 def _rate_limit_bucket(rate_limits: dict[str, Any], window_minutes: int) -> dict[str, Any] | None:

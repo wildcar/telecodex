@@ -259,7 +259,7 @@ def test_safe_history_log_stem_normalizes_unsafe_project_name() -> None:
     assert _safe_history_log_stem('ops/core:prod\\west?*') == "ops_core_prod_west_"
 
 
-def test_format_context_remaining_uses_last_turn_tokens() -> None:
+def test_format_context_remaining_returns_percent_only() -> None:
     assert (
         _format_context_remaining(
             {
@@ -267,8 +267,12 @@ def test_format_context_remaining_uses_last_turn_tokens() -> None:
                 "model_context_window": 10000,
             }
         )
-        == "8,750 / 10,000 tokens (87.5% remaining)"
+        == "87.5% remaining"
     )
+
+
+def test_format_context_remaining_hides_incomplete_metadata() -> None:
+    assert _format_context_remaining({"last_token_usage": {"input_tokens": 100, "output_tokens": 5}}) is None
 
 
 def test_format_rate_limit_uses_matching_window() -> None:
@@ -282,6 +286,10 @@ def test_format_rate_limit_uses_matching_window() -> None:
         )
         == "98.0% remaining, resets 2026-02-22 00:49 UTC"
     )
+
+
+def test_format_rate_limit_hides_missing_window() -> None:
+    assert _format_rate_limit({"primary": {"used_percent": 2.0, "window_minutes": 60}}, 300) is None
 
 
 def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:
