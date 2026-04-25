@@ -29,6 +29,13 @@ logger = logging.getLogger(__name__)
 
 SAFE_HISTORY_FILENAME_RE = re.compile(r'[<>:"/\\\\|?*\x00-\x1f]+')
 TEXT_DOCUMENT_MAX_BYTES = 512 * 1024
+CODEX_CONTEXT_DIAGNOSTIC_PROMPT = """Telecodex connection check.
+Do not modify files.
+Inspect the current workspace/session only as needed and answer concisely in plain text:
+- current working directory
+- whether previous session context is visible; if yes, summarize the previous assistant answer
+- whether this project/session is usable
+Keep the answer under 900 characters."""
 
 
 @dataclass(slots=True)
@@ -165,14 +172,9 @@ class TelecodexApplication:
                 project_name=project_name,
                 codex_session_id=latest_session.codex_session_id if latest_session else None,
             )
-            if latest_session is None:
-                await message.answer(
-                    f"Project: {project_name}\nThis project has no sessions yet. The next request will start a new session.",
-                    reply_markup=self._menu_keyboard(),
-                )
-                return
-            await message.answer(
-                f"Project: {project_name}\nSelected latest project session: <code>{html.escape(self._session_title(latest_session))}</code>",
+            status_message = await message.answer(f"Checking project/session with Codex: {project_name}")
+            await status_message.edit_text(
+                await self._run_context_diagnostic(chat_id, project_name, latest_session),
                 reply_markup=self._menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -221,8 +223,9 @@ class TelecodexApplication:
                 await message.answer("Session not found in the current project.")
                 return
             await self.repo.set_chat_state(message.chat.id, state.project_name, selected.codex_session_id)
-            await message.answer(
-                f"Selected session: <code>{html.escape(self._session_title(selected))}</code>",
+            status_message = await message.answer(f"Checking session with Codex: {self._session_title(selected)}")
+            await status_message.edit_text(
+                await self._run_context_diagnostic(message.chat.id, state.project_name, selected),
                 reply_markup=self._menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -423,23 +426,14 @@ class TelecodexApplication:
                 project_name,
                 latest_session.codex_session_id if latest_session else None,
             )
-            if latest_session is None:
-                await self._edit_callback_message(
-                    callback,
-                    f"Switched to project {project_name}.\nThis project has no sessions yet. The next request will start a new session.",
-                    self._menu_keyboard(),
-                )
-            else:
-                await self._edit_callback_message(
-                    callback,
-                    (
-                        f"Switched to project {project_name}.\n"
-                        f"Selected latest project session: <code>{html.escape(self._session_title(latest_session))}</code>"
-                    ),
-                    self._menu_keyboard(),
-                    parse_mode="HTML",
-                )
+            await self._edit_callback_message(callback, f"Checking project/session with Codex: {project_name}")
             await callback.answer("Project updated.")
+            await self._edit_callback_message(
+                callback,
+                await self._run_context_diagnostic(callback.message.chat.id, project_name, latest_session),
+                self._menu_keyboard(),
+                parse_mode="HTML",
+            )
 
         @self.router.callback_query(F.data == "session:list")
         async def session_list(callback: CallbackQuery) -> None:
@@ -527,13 +521,14 @@ class TelecodexApplication:
                 await callback.answer("Session not found.", show_alert=True)
                 return
             await self.repo.set_chat_state(callback.message.chat.id, state.project_name, selected.codex_session_id)
+            await self._edit_callback_message(callback, f"Checking session with Codex: {self._session_title(selected)}")
+            await callback.answer("Session updated.")
             await self._edit_callback_message(
                 callback,
-                f"Selected session: <code>{html.escape(self._session_title(selected))}</code>",
+                await self._run_context_diagnostic(callback.message.chat.id, state.project_name, selected),
                 self._menu_keyboard(),
                 parse_mode="HTML",
             )
-            await callback.answer("Session updated.")
 
         @self.router.callback_query(F.data == "action:stop")
         async def action_stop(callback: CallbackQuery) -> None:
@@ -781,6 +776,111 @@ class TelecodexApplication:
     async def _latest_session_for_project(self, project_name: str) -> SessionRecord | None:
         items = await self.repo.list_sessions(project_name, limit=1)
         return items[0] if items else None
+
+    async def _run_context_diagnostic(
+        self,
+        chat_id: int,
+        project_name: str,
+        session: SessionRecord | None,
+    ) -> str:
+        if chat_id in self.active_runs:
+            return "Codex check skipped: another task is already running in this chat."
+
+        project_path = self.projects[project_name]
+        cancel_event = asyncio.Event()
+        typing_task = asyncio.create_task(self._typing_loop(chat_id, cancel_event))
+        self.active_runs[chat_id] = ActiveRun(
+            started_at=asyncio.get_running_loop().time(),
+            project_name=project_name,
+            codex_session_id=session.codex_session_id if session else None,
+            cancel_event=cancel_event,
+        )
+        try:
+            result = await self.runner.run(
+                project_path=str(project_path),
+                codex_session_id=session.codex_session_id if session else None,
+                user_prompt=CODEX_CONTEXT_DIAGNOSTIC_PROMPT,
+                on_progress=None,
+                on_message=None,
+                cancel_event=cancel_event,
+            )
+        except Exception as exc:
+            logger.exception("Codex context diagnostic failed", extra={"chat_id": chat_id, "project_name": project_name})
+            return self._context_diagnostic_error_card(project_name, project_path, session, str(exc))
+        finally:
+            cancel_event.set()
+            await typing_task
+            self.active_runs.pop(chat_id, None)
+
+        selected_session = session
+        if result.codex_session_id:
+            selected_session = await self.repo.save_session(result.codex_session_id, project_name, str(project_path))
+            await self.repo.set_chat_state(chat_id, project_name, selected_session.codex_session_id)
+        elif selected_session:
+            await self.repo.touch_session(selected_session.codex_session_id)
+
+        return self._context_diagnostic_card(project_name, project_path, selected_session, result)
+
+    def _context_diagnostic_card(
+        self,
+        project_name: str,
+        project_path: Path,
+        session: SessionRecord | None,
+        result,
+    ) -> str:
+        model, effort = self._codex_model_and_effort()
+        session_text = self._session_title(session) if session else "new session"
+        reply = (result.assistant_text or result.display_text or result.output or "").strip()
+        if not reply:
+            reply = "No diagnostic reply returned."
+        status = "ok" if result.success else f"failed: code={result.return_code}"
+        if result.cancelled:
+            status = "cancelled"
+        elif result.timed_out:
+            status = "failed: timeout"
+        return (
+            "Project/session check\n"
+            f"Project: {html.escape(project_name)}\n"
+            f"Path: <code>{html.escape(str(project_path))}</code>\n"
+            f"Session: {self._session_text_html(session_text)}\n"
+            f"Codex status: {html.escape(status)}\n"
+            f"Model: {html.escape(model)}\n"
+            f"Effort: {html.escape(effort)}\n"
+            f"Context: {html.escape(_format_context_remaining(result.token_info))}\n"
+            f"5h limit: {html.escape(_format_rate_limit(result.rate_limits, 300))}\n"
+            f"Weekly limit: {html.escape(_format_rate_limit(result.rate_limits, 10080))}\n\n"
+            f"Codex reply:\n{html.escape(_truncate_text(reply, 1600))}"
+        )
+
+    def _context_diagnostic_error_card(
+        self,
+        project_name: str,
+        project_path: Path,
+        session: SessionRecord | None,
+        error_text: str,
+    ) -> str:
+        model, effort = self._codex_model_and_effort()
+        session_text = self._session_title(session) if session else "new session"
+        return (
+            "Project/session check\n"
+            f"Project: {html.escape(project_name)}\n"
+            f"Path: <code>{html.escape(str(project_path))}</code>\n"
+            f"Session: {self._session_text_html(session_text)}\n"
+            "Codex status: failed before reply\n"
+            f"Model: {html.escape(model)}\n"
+            f"Effort: {html.escape(effort)}\n"
+            "Context: unknown\n"
+            "5h limit: unknown\n"
+            "Weekly limit: unknown\n\n"
+            f"Codex error:\n{html.escape(_truncate_text(error_text, 1600))}"
+        )
+
+    def _codex_model_and_effort(self) -> tuple[str, str]:
+        model = _extract_cli_option(self.runner.command, "--model", "-m") or _read_codex_config_value("model") or "unknown"
+        effort = _extract_config_value(self.runner.command, "model_reasoning_effort")
+        if effort is None:
+            effort = _read_codex_config_value("model_reasoning_effort")
+        return model, effort or "unknown"
 
     async def _send_menu(self, message: Message) -> None:
         self.pending_project_drafts.pop(message.chat.id, None)
@@ -1132,6 +1232,137 @@ class TelecodexApplication:
         if value == "not selected":
             return value
         return f"<code>{html.escape(value)}</code>"
+
+
+def _extract_cli_option(command: list[str], long_name: str, short_name: str) -> str | None:
+    for index, item in enumerate(command):
+        if item in {long_name, short_name} and index + 1 < len(command):
+            return command[index + 1]
+        prefix = f"{long_name}="
+        if item.startswith(prefix):
+            return item.removeprefix(prefix)
+    return None
+
+
+def _extract_config_value(command: list[str], key: str) -> str | None:
+    for index, item in enumerate(command):
+        value = None
+        if item in {"--config", "-c"} and index + 1 < len(command):
+            value = command[index + 1]
+        elif item.startswith("--config="):
+            value = item.removeprefix("--config=")
+        if not value:
+            continue
+        if not value.startswith(f"{key}="):
+            continue
+        return value.split("=", 1)[1].strip().strip("\"'")
+    return None
+
+
+def _read_codex_config_value(key: str) -> str | None:
+    config_path = Path.home() / ".codex" / "config.toml"
+    try:
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*(.+?)\s*$")
+    for line in lines:
+        match = pattern.match(line)
+        if not match:
+            continue
+        return match.group(1).strip().strip("\"'")
+    return None
+
+
+def _format_context_remaining(token_info: dict[str, Any] | None) -> str:
+    if not token_info:
+        return "unknown"
+    window = _coerce_int(token_info.get("model_context_window"))
+    usage = token_info.get("last_token_usage")
+    if not isinstance(usage, dict):
+        usage = token_info.get("total_token_usage")
+    used = _usage_total_tokens(usage) if isinstance(usage, dict) else None
+    if window is None and used is None:
+        return "unknown"
+    if window is None:
+        return f"used {used:,} tokens"
+    if used is None:
+        return f"window {window:,} tokens, usage unknown"
+    remaining = max(0, window - used)
+    percent = remaining / window * 100 if window else 0
+    return f"{remaining:,} / {window:,} tokens ({percent:.1f}% remaining)"
+
+
+def _format_rate_limit(rate_limits: dict[str, Any] | None, window_minutes: int) -> str:
+    if not rate_limits:
+        return "unknown"
+    bucket = _rate_limit_bucket(rate_limits, window_minutes)
+    if not bucket:
+        return "unknown"
+    used_percent = _coerce_float(bucket.get("used_percent"))
+    resets_at = _coerce_int(bucket.get("resets_at"))
+    parts: list[str] = []
+    if used_percent is not None:
+        remaining = max(0.0, 100.0 - used_percent)
+        parts.append(f"{remaining:.1f}% remaining")
+    if resets_at is not None:
+        parts.append(f"resets {datetime.fromtimestamp(resets_at, UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    return ", ".join(parts) if parts else "unknown"
+
+
+def _rate_limit_bucket(rate_limits: dict[str, Any], window_minutes: int) -> dict[str, Any] | None:
+    for key in ("primary", "secondary"):
+        value = rate_limits.get(key)
+        if not isinstance(value, dict):
+            continue
+        if _coerce_int(value.get("window_minutes")) == window_minutes:
+            return value
+    return None
+
+
+def _usage_total_tokens(usage: dict[str, Any]) -> int | None:
+    explicit_total = _coerce_int(usage.get("total_tokens"))
+    if explicit_total is not None:
+        return explicit_total
+    input_tokens = _coerce_int(usage.get("input_tokens"))
+    output_tokens = _coerce_int(usage.get("output_tokens"))
+    if input_tokens is None and output_tokens is None:
+        return None
+    return (input_tokens or 0) + (output_tokens or 0)
+
+
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3].rstrip() + "..."
 
 
 def _command_arg(text: str | None) -> str:

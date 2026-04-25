@@ -55,6 +55,7 @@ B) Project management
 - A created project is saved in the database, appears in the shared project list, and becomes selected for the current chat.
 - Deleting a project removes it from the database together with its saved sessions; chats that used it have both `project_name` and `codex_session_id` cleared.
 - When a project is selected, the bot restores the most recently used session for that project if one exists.
+- After a project is selected, the bot performs a fresh Codex diagnostic request in the selected project and session context, verifies that Codex can answer from that location/session, and shows a project/session info card with the project path, selected session, reported model details when available, context remaining, five-hour and weekly Codex limit remaining when reported by Codex CLI, and the diagnostic model reply.
 
 C) Session management
 - `/sessions` shows saved sessions for the current project and also accepts `new` or `codex_session_id` as text input.
@@ -62,6 +63,7 @@ C) Session management
 - `/session_name <alias>` sets an alias for the current session.
 - `/whereami` shows the same state card as `/menu`.
 - The `Session` button opens recent sessions for the current project.
+- After a session is selected, the bot performs the same fresh Codex diagnostic request through `codex exec resume` for that session and shows the resulting project/session info card.
 - The `New session` button clears the current session binding; the next task starts a new Codex session.
 - The session picker includes a `Delete session` action.
 - Deleting the active session clears `codex_session_id` in `chat_state`.
@@ -122,6 +124,7 @@ Codex CLI integration
 - The primary source of streamed reply text is `item.message.delta`.
 - Compatible fallback events are also supported, including `response_item`, `event_msg`, and `item.completed` with final text.
 - Session/thread identifiers returned by Codex CLI are used as the source of truth for `codex_session_id`.
+- `token_count` and `turn.completed` events from Codex CLI are parsed as best-effort run metadata, including context window, context remaining, five-hour and weekly limit usage/reset data when present.
 - Invalid JSON lines and unexpected event types must not crash execution.
 - Subprocess startup failures and unexpected runner exceptions must be converted into a visible final Telegram reply so the live status message never remains stuck on `Telecodex thinking`.
 

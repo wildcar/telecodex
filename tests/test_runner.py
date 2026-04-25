@@ -59,6 +59,31 @@ def test_parser_handles_invalid_json_gracefully() -> None:
     assert events[0].kind == "invalid_json"
 
 
+def test_parser_extracts_token_count_metadata() -> None:
+    parser = CodexJsonEventParser()
+
+    events = parser.parse_line(
+        '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":1000},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":2.0,"window_minutes":300}}}}\n'
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == "token_count"
+    assert events[0].token_info == {"last_token_usage": {"total_tokens": 1000}, "model_context_window": 258400}
+    assert events[0].rate_limits == {"primary": {"used_percent": 2.0, "window_minutes": 300}}
+
+
+def test_parser_extracts_turn_completed_usage() -> None:
+    parser = CodexJsonEventParser()
+
+    events = parser.parse_line(
+        '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":5}}\n'
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == "token_count"
+    assert events[0].token_info == {"last_token_usage": {"input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 5}}
+
+
 def test_build_command_keeps_full_prompt_as_single_argument() -> None:
     runner = CodexRunner("codex exec --model gpt-5.5", timeout_sec=1)
 

@@ -15,6 +15,8 @@ from telecodex.bot import (
     _append_conversation_log,
     _build_document_prompt,
     _decode_text_document,
+    _format_context_remaining,
+    _format_rate_limit,
     _load_restart_request,
     _safe_history_log_stem,
 )
@@ -255,6 +257,31 @@ def test_conversation_log_path_uses_user_directory_and_project_file(tmp_path: Pa
 
 def test_safe_history_log_stem_normalizes_unsafe_project_name() -> None:
     assert _safe_history_log_stem('ops/core:prod\\west?*') == "ops_core_prod_west_"
+
+
+def test_format_context_remaining_uses_last_turn_tokens() -> None:
+    assert (
+        _format_context_remaining(
+            {
+                "last_token_usage": {"total_tokens": 1250},
+                "model_context_window": 10000,
+            }
+        )
+        == "8,750 / 10,000 tokens (87.5% remaining)"
+    )
+
+
+def test_format_rate_limit_uses_matching_window() -> None:
+    assert (
+        _format_rate_limit(
+            {
+                "primary": {"used_percent": 2.0, "window_minutes": 300, "resets_at": 1771721389},
+                "secondary": {"used_percent": 10.0, "window_minutes": 10080, "resets_at": 1772308189},
+            },
+            300,
+        )
+        == "98.0% remaining, resets 2026-02-22 00:49 UTC"
+    )
 
 
 def test_append_conversation_log_keeps_plain_raw_content(tmp_path: Path) -> None:

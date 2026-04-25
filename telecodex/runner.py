@@ -26,6 +26,8 @@ class RunResult:
     assistant_text: str
     display_text: str
     codex_session_id: str | None
+    token_info: dict[str, Any] | None = None
+    rate_limits: dict[str, Any] | None = None
     timed_out: bool = False
     cancelled: bool = False
 
@@ -36,6 +38,8 @@ class CodexStreamEvent:
     event_type: str
     text: str = ""
     session_id: str | None = None
+    token_info: dict[str, Any] | None = None
+    rate_limits: dict[str, Any] | None = None
     raw_line: str = ""
     payload: dict[str, Any] | None = None
 
@@ -87,6 +91,19 @@ class CodexJsonEventParser:
         if event_type == "event_msg":
             return events + self._parse_event_msg(payload, raw_line)
 
+        if event_type == "turn.completed":
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                return events + [
+                    CodexStreamEvent(
+                        kind="token_count",
+                        event_type=event_type,
+                        token_info={"last_token_usage": usage},
+                        raw_line=raw_line,
+                        payload=payload,
+                    )
+                ]
+
         if event_type == "response_item":
             return events + self._parse_response_item(payload, raw_line)
 
@@ -101,6 +118,19 @@ class CodexJsonEventParser:
         if not isinstance(body, dict):
             return []
         body_type = str(body.get("type", "unknown"))
+        if body_type == "token_count":
+            info = body.get("info")
+            rate_limits = body.get("rate_limits")
+            return [
+                CodexStreamEvent(
+                    kind="token_count",
+                    event_type=body_type,
+                    token_info=info if isinstance(info, dict) else None,
+                    rate_limits=rate_limits if isinstance(rate_limits, dict) else None,
+                    raw_line=raw_line,
+                    payload=body,
+                )
+            ]
         if body_type == "agent_message":
             message = self._coerce_text(body.get("message"))
             if message:
@@ -206,10 +236,18 @@ class CodexResponseAggregator:
     def __init__(self) -> None:
         self.assistant_text = ""
         self.session_id: str | None = None
+        self.token_info: dict[str, Any] | None = None
+        self.rate_limits: dict[str, Any] | None = None
 
     def apply(self, event: CodexStreamEvent) -> str | None:
         if event.session_id:
             self.session_id = event.session_id
+        if event.kind == "token_count":
+            if event.token_info is not None:
+                self.token_info = event.token_info
+            if event.rate_limits is not None:
+                self.rate_limits = event.rate_limits
+            return None
         if event.kind == "assistant_delta" and event.text:
             self.assistant_text += event.text
             return self.assistant_text
@@ -358,6 +396,8 @@ class CodexRunner:
             assistant_text=assistant_text,
             display_text=display_text,
             codex_session_id=aggregator.session_id or codex_session_id,
+            token_info=aggregator.token_info,
+            rate_limits=aggregator.rate_limits,
             timed_out=timed_out,
             cancelled=cancelled,
         )
