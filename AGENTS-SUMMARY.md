@@ -41,3 +41,17 @@ Telecodex is a Telegram bot for running Codex CLI tasks in selected project dire
 - `b84580a` added fresh Codex context checks when selecting projects or sessions.
 - `d05fa47` hid unavailable diagnostic metadata instead of showing `unknown`.
 - `64a02aa` exposed raw Codex diagnostic error detail when diagnostics fail.
+- `c20dc29` clarified the agent documentation structure and made this file the clean-context handoff.
+
+## Post-Compact Resume
+
+Use this section as the first recovery point after context compaction.
+
+- Current repository: `/home/keeper/repo/telecodex_bot`.
+- Production service path: `/opt/telecodex`, expected to be a symlink to this checkout.
+- Primary instructions: start from `AGENTS.md`, then read `AGENTS-TECHSPEC.md`, this file, the latest `AGENTS-HISTORY.md` entry, and the relevant `AGENTS-SPECIFICS-*.md` note.
+- Functional source of truth: `AGENTS-TECHSPEC.md`; `FS.md` remains a compatibility pointer.
+- Latest known verification before this summary update: `./.venv/bin/pytest -q` passed with `73 passed`.
+- Latest known important runtime state: default Codex command uses `gpt-5.5`; project/session selection runs a fresh Codex diagnostic and hides context/rate-limit fields when Codex CLI does not provide enough metadata.
+- Normal change flow: check `git status --short`, avoid overwriting unrelated changes, update `AGENTS-TECHSPEC.md` only when behavior changes, add concise `AGENTS-HISTORY.md` entries for non-trivial work, run the narrowest useful verification, then commit and push.
+- Commit identity: `wildcar <wildcar@users.noreply.github.com>`.
