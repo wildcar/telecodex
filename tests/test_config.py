@@ -1,6 +1,14 @@
 from telecodex.config import Settings
 
 
+def test_default_codex_command_uses_gpt_5_5() -> None:
+    settings = Settings(
+        TELEGRAM_BOT_TOKEN="x",
+    )
+
+    assert settings.codex_command == "codex exec --model gpt-5.5"
+
+
 def test_admin_chat_ids_parse() -> None:
     settings = Settings(
         TELEGRAM_BOT_TOKEN="x",

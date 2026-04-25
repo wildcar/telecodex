@@ -15,6 +15,7 @@ Current stack and storage
 - The project list is stored in SQLite and managed from Telegram.
 - The selected project and selected session are stored by `chat_id`.
 - The Codex launch command is configured through `CODEX_COMMAND`.
+- The default Codex model for new and resumed tasks is `gpt-5.5`.
 - Runtime artifacts from `data/`, `history/`, and `logs/` are local-only and must not be committed.
 
 Constraints
@@ -110,6 +111,7 @@ Logs and history
 
 Codex CLI integration
 - The bot runs `CODEX_COMMAND` with the prompt appended.
+- The default `CODEX_COMMAND` includes `--model gpt-5.5` so Codex CLI uses GPT-5.5 unless an operator explicitly overrides the command in `.env`.
 - The Codex subprocess is started with `cwd = project_path`.
 - If `CODEX_COMMAND` uses the bare `codex` executable name and it is missing from the service `PATH`, the runner must resolve it from common per-user install locations such as `~/.nvm/.../bin/codex` before failing the run.
 - If the resolved Codex executable is a script that depends on sibling runtime binaries such as `node` via `/usr/bin/env`, the runner must augment the subprocess `PATH` with the Codex executable directory so those binaries are discoverable even under a minimal systemd environment.

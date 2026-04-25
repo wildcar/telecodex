@@ -60,7 +60,7 @@ def test_parser_handles_invalid_json_gracefully() -> None:
 
 
 def test_build_command_keeps_full_prompt_as_single_argument() -> None:
-    runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
+    runner = CodexRunner("codex exec --model gpt-5.5", timeout_sec=1)
 
     command = runner._build_command("line one\nline two", None, "/tmp/demo")
 
@@ -72,7 +72,7 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
         "exec",
         "--skip-git-repo-check",
         "--model",
-        "gpt-5",
+        "gpt-5.5",
         "--json",
         "--",
         "line one\nline two",
@@ -80,7 +80,7 @@ def test_build_command_keeps_full_prompt_as_single_argument() -> None:
 
 
 def test_build_command_uses_native_resume_when_ref_exists() -> None:
-    runner = CodexRunner("codex exec --model gpt-5", timeout_sec=1)
+    runner = CodexRunner("codex exec --model gpt-5.5", timeout_sec=1)
 
     command = runner._build_command("continue", "12345678-1234-1234-1234-1234567890ab", "/tmp/demo")
 
@@ -92,7 +92,7 @@ def test_build_command_uses_native_resume_when_ref_exists() -> None:
         "exec",
         "--skip-git-repo-check",
         "--model",
-        "gpt-5",
+        "gpt-5.5",
         "resume",
         "--json",
         "12345678-1234-1234-1234-1234567890ab",

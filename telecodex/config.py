@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     deepgram_timeout_sec: float = Field(default=30.0, alias="DEEPGRAM_TIMEOUT_SEC")
     deepgram_retries: int = Field(default=2, alias="DEEPGRAM_RETRIES")
     codex_command: str = Field(
-        default="codex exec --dangerously-bypass-approvals-and-sandbox",
+        default="codex exec --model gpt-5.5",
         alias="CODEX_COMMAND",
     )
     db_path: Path = Field(default=Path("./data/telecodex.db"), alias="DB_PATH")
